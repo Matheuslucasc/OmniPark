@@ -1,0 +1,136 @@
+-- ============================================================
+-- OmniPark — Schema PostgreSQL
+-- Compatível com Vercel Postgres / Supabase / Neon
+-- ============================================================
+
+-- Extensão para UUID
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- ============================================================
+-- Tabela: vehicles
+-- Registra entradas e saídas de veículos
+-- ============================================================
+CREATE TABLE IF NOT EXISTS vehicles (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  plate         VARCHAR(10)    NOT NULL,
+  vehicle_name  VARCHAR(100),
+  entry_time    TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+  exit_time     TIMESTAMPTZ,
+  amount_paid   DECIMAL(10,2),
+  status        VARCHAR(10)    NOT NULL DEFAULT 'parked'
+                  CHECK (status IN ('parked', 'exited')),
+  created_at    TIMESTAMPTZ    NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_vehicles_plate  ON vehicles (plate);
+CREATE INDEX IF NOT EXISTS idx_vehicles_status ON vehicles (status);
+CREATE INDEX IF NOT EXISTS idx_vehicles_entry  ON vehicles (entry_time DESC);
+CREATE INDEX IF NOT EXISTS idx_vehicles_exit   ON vehicles (exit_time  DESC);
+
+-- ============================================================
+-- Tabela: parking_settings
+-- Configurações gerais do estacionamento (uma única linha)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS parking_settings (
+  id                      SERIAL PRIMARY KEY,
+  total_spots             INTEGER        NOT NULL DEFAULT 50,
+  parking_name            VARCHAR(200)   NOT NULL DEFAULT 'Estacionamento Central',
+  parking_address         VARCHAR(300),
+  parking_phone           VARCHAR(30),
+  parking_cnpj            VARCHAR(20),
+  ticket_observation      TEXT,
+  -- Precificação
+  tolerance_minutes       INTEGER        NOT NULL DEFAULT 15,
+  first_hour_price        DECIMAL(10,2)  NOT NULL DEFAULT 10.00,
+  additional_hour_price   DECIMAL(10,2)  NOT NULL DEFAULT 5.00,
+  daily_max_price         DECIMAL(10,2)  NOT NULL DEFAULT 50.00,
+  round_up_minutes        INTEGER        NOT NULL DEFAULT 10,
+  updated_at              TIMESTAMPTZ    NOT NULL DEFAULT NOW()
+);
+
+-- Garante que só existe uma linha de configuração
+INSERT INTO parking_settings DEFAULT VALUES
+  ON CONFLICT DO NOTHING;
+
+-- ============================================================
+-- Tabela: camera_settings
+-- Câmeras IP configuradas para leitura de placas
+-- ============================================================
+CREATE TABLE IF NOT EXISTS camera_settings (
+  id            SERIAL PRIMARY KEY,
+  name          VARCHAR(100)   NOT NULL,
+  ip_address    VARCHAR(45)    NOT NULL,                          -- IPv4 ou IPv6
+  port          INTEGER        NOT NULL DEFAULT 554,
+  protocol      VARCHAR(10)    NOT NULL DEFAULT 'rtsp'
+                  CHECK (protocol IN ('rtsp', 'http', 'https')),
+  stream_path   VARCHAR(300)   DEFAULT '/stream',
+  username      VARCHAR(100),
+  password      VARCHAR(255),                                     -- armazene com hash em produção
+  location      VARCHAR(100),                                     -- ex: "Entrada", "Saída", "Lateral"
+  is_active     BOOLEAN        NOT NULL DEFAULT FALSE,
+  created_at    TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ    NOT NULL DEFAULT NOW()
+);
+
+-- Apenas uma câmera ativa por vez
+CREATE UNIQUE INDEX IF NOT EXISTS idx_camera_active
+  ON camera_settings (is_active)
+  WHERE is_active = TRUE;
+
+-- ============================================================
+-- Tabela: plate_reads
+-- Log de todas as placas lidas pelas câmeras
+-- ============================================================
+CREATE TABLE IF NOT EXISTS plate_reads (
+  id            SERIAL PRIMARY KEY,
+  camera_id     INTEGER        REFERENCES camera_settings (id) ON DELETE SET NULL,
+  plate         VARCHAR(10)    NOT NULL,
+  confidence    DECIMAL(5,2),                                     -- % de confiança do OCR
+  image_url     TEXT,                                             -- caminho/URL da imagem capturada
+  read_at       TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+  processed     BOOLEAN        NOT NULL DEFAULT FALSE             -- TRUE após vincular a um vehicle
+);
+
+CREATE INDEX IF NOT EXISTS idx_plate_reads_plate     ON plate_reads (plate);
+CREATE INDEX IF NOT EXISTS idx_plate_reads_read_at   ON plate_reads (read_at DESC);
+CREATE INDEX IF NOT EXISTS idx_plate_reads_processed ON plate_reads (processed);
+
+-- ============================================================
+-- View: dashboard_stats
+-- Estatísticas prontas para o painel (últimas 24h)
+-- ============================================================
+CREATE OR REPLACE VIEW dashboard_stats AS
+SELECT
+  (SELECT COUNT(*) FROM vehicles WHERE status = 'parked')                          AS occupied_spots,
+  (SELECT total_spots FROM parking_settings LIMIT 1)
+    - (SELECT COUNT(*) FROM vehicles WHERE status = 'parked')                      AS available_spots,
+  COALESCE((
+    SELECT SUM(amount_paid)
+    FROM vehicles
+    WHERE status = 'exited'
+      AND exit_time >= CURRENT_DATE
+  ), 0)                                                                             AS today_revenue,
+  (
+    SELECT COUNT(*)
+    FROM vehicles
+    WHERE entry_time >= CURRENT_DATE
+  )                                                                                 AS today_vehicles;
+
+-- ============================================================
+-- Função + Trigger: atualiza updated_at automaticamente
+-- ============================================================
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_camera_settings_updated_at
+  BEFORE UPDATE ON camera_settings
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE TRIGGER trg_parking_settings_updated_at
+  BEFORE UPDATE ON parking_settings
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();

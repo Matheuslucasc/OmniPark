@@ -34,23 +34,23 @@ export function StatCard({
   };
 
   return (
-    <div 
+    <div
       className={cn(
-        "p-6 rounded-xl border-2 transition-all hover:shadow-lg",
+        'p-4 sm:p-6 rounded-xl border-2 transition-all hover:shadow-lg',
         variantClasses[variant],
         className
       )}
     >
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground font-medium">{title}</p>
-          <p className="text-3xl font-bold mt-1">{value}</p>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs sm:text-sm text-muted-foreground font-medium truncate">{title}</p>
+          <p className="text-2xl sm:text-3xl font-bold mt-1 truncate">{value}</p>
           {subtitle && (
-            <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-1">{subtitle}</p>
           )}
         </div>
-        <div className={cn("p-3 rounded-lg", iconClasses[variant])}>
-          <Icon className="w-6 h-6" />
+        <div className={cn('p-2 sm:p-3 rounded-lg shrink-0', iconClasses[variant])}>
+          <Icon className="w-4 h-4 sm:w-6 sm:h-6" />
         </div>
       </div>
     </div>

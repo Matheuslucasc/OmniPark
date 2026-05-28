@@ -170,11 +170,12 @@ export function ReportsPanel({ vehicles }: ReportsPanelProps) {
                 <div key={i} className="flex-1 flex flex-col items-center gap-2">
                   <div className="text-xs font-medium">{formatCurrency(day.revenue)}</div>
                   <div className="w-full h-48 bg-secondary rounded-t-lg overflow-hidden flex items-end">
-                    <div 
-                      className={`w-full transition-all duration-500 rounded-t-lg ${
+                    <div
+                      // eslint-disable-next-line react/forbid-component-props
+                      style={{ transform: `scaleY(${height / 100})` }}
+                      className={`w-full h-full origin-bottom transition-all duration-500 rounded-t-lg ${
                         isCurrentDay ? 'bg-primary' : 'bg-primary/60'
                       }`}
-                      style={{ height: `${height}%` }}
                     />
                   </div>
                   <div className="text-xs text-muted-foreground">

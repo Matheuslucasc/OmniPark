@@ -39,6 +39,31 @@ export interface HistoryFilters {
   plate?: string;
 }
 
+export interface CameraConfig {
+  id: string;
+  name: string;
+  ipAddress: string;
+  port: number;
+  protocol: 'rtsp' | 'http' | 'https';
+  streamPath: string;
+  username?: string;
+  password?: string;
+  location?: string;
+  isActive: boolean;
+}
+
+export const DEFAULT_CAMERA: Omit<CameraConfig, 'id'> = {
+  name: 'Câmera Entrada',
+  ipAddress: '192.168.1.100',
+  port: 554,
+  protocol: 'rtsp',
+  streamPath: '/stream',
+  username: '',
+  password: '',
+  location: 'Entrada',
+  isActive: true,
+};
+
 export const DEFAULT_SETTINGS: ParkingSettings = {
   totalSpots: 50,
   parkingName: 'Estacionamento Central',
