@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
 import { useParking } from '@/hooks/useParking';
 import { Sidebar } from '@/components/parking/Sidebar';
 import { StatCard } from '@/components/parking/StatCard';
@@ -53,6 +54,28 @@ const Index = () => {
       return [{ plate: normalized, imageUrl, at: new Date() }, ...prev].slice(0, 2);
     });
   };
+
+  // ── Supabase Realtime — recebe placas do Python em tempo real ────────────
+  useEffect(() => {
+    if (!supabase) return;
+
+    const channel = supabase
+      .channel('plate_reads_live')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'plate_reads' },
+        (payload) => {
+          const row = payload.new as { plate: string; image_url?: string };
+          if (!row.plate) return;
+          setLastReadPlate(row.plate);
+          pushPlateRead(row.plate, row.image_url ?? undefined);
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const {
     vehicles,
