@@ -29,6 +29,7 @@ const pageTitles: Record<string, string> = {
   exit:      'Registrar Saída',
   reports:   'Relatórios',
   history:   'Histórico',
+  tarifas:   'Tarifas Especiais',
   cameras:   'Câmeras',
   settings:  'Configurações',
 };
@@ -265,18 +266,20 @@ const Index = () => {
       case 'history':
         return <HistoryTable getHistory={getHistory} onDelete={deleteVehicle} settings={settings} />;
 
+      case 'tarifas':
+        return <PriceModulesPanel defaultPricing={settings.pricing} />;
+
       case 'cameras':
         return <CameraPanel />;
 
       case 'settings':
         return (
-          <div className="max-w-2xl space-y-8">
+          <div className="max-w-2xl">
             <SettingsPanel
               settings={settings}
               onUpdateSettings={updateSettings}
               onUpdatePricing={updatePricing}
             />
-            <PriceModulesPanel defaultPricing={settings.pricing} />
           </div>
         );
 

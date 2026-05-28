@@ -41,8 +41,16 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
     try {
       const vehicle = await onConfirm(plate, vehicleName);
       setConfirmedVehicle(vehicle);
-    } catch {
-      toast({ title: "Erro ao registrar entrada", variant: "destructive" });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[OmniPark] Erro ao registrar entrada:', msg);
+      toast({
+        title: "Erro ao registrar entrada",
+        description: msg.includes('row-level') || msg.includes('permission')
+          ? 'Permissão negada no banco. Execute o SQL de correção no Supabase.'
+          : msg,
+        variant: "destructive",
+      });
     } finally {
       setSubmitting(false);
     }

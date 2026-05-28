@@ -3,6 +3,21 @@
 -- Compatível com Vercel Postgres / Supabase / Neon
 -- ============================================================
 
+-- !! RODE ESTE BLOCO PRIMEIRO SE VEÍCULOS NÃO ESTÃO SENDO SALVOS !!
+-- Garante acesso total às tabelas para usuários autenticados
+-- (execute no SQL Editor do Supabase)
+--
+-- ALTER TABLE vehicles       DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE price_modules   DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE camera_settings DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE plate_reads     DISABLE ROW LEVEL SECURITY;
+--
+-- OU, se preferir manter RLS, crie as políticas:
+-- CREATE POLICY "auth users full access on vehicles"
+--   ON vehicles FOR ALL TO authenticated USING (true) WITH CHECK (true);
+-- CREATE POLICY "auth users full access on price_modules"
+--   ON price_modules FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
 -- Extensão para UUID
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 

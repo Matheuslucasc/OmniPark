@@ -1,4 +1,4 @@
-import { Car, LogIn, LogOut, History, Settings, BarChart3, Camera, X, Menu, Power } from 'lucide-react';
+import { Car, LogIn, LogOut, History, Settings, BarChart3, Camera, X, Menu, Power, Tag } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -32,6 +32,7 @@ const menuItems = [
   { id: 'exit',       label: 'Saída',          icon: LogOut    },
   { id: 'reports',    label: 'Relatórios',     icon: BarChart3 },
   { id: 'history',    label: 'Histórico',      icon: History   },
+  { id: 'tarifas',    label: 'Tarifas',        icon: Tag       },
   { id: 'cameras',    label: 'Câmeras',        icon: Camera    },
   { id: 'settings',   label: 'Configurações',  icon: Settings  },
 ];
