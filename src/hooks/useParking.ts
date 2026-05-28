@@ -3,7 +3,7 @@ import { useLocalStorage } from './useLocalStorage';
 import { Vehicle, ParkingSettings, ParkingStats, DEFAULT_SETTINGS, HistoryFilters } from '@/types/parking';
 import { calculateParkingFee, generateId, isToday } from '@/lib/parking-utils';
 import { hasDB } from '@/lib/supabase';
-import { dbFetchVehicles, dbInsertVehicle, dbUpdateVehicleExit, dbFetchSettings, dbUpsertSettings } from '@/lib/db';
+import { dbFetchVehicles, dbInsertVehicle, dbUpdateVehicleExit, dbDeleteVehicle } from '@/lib/db';
 
 const VEHICLES_KEY = 'parking_vehicles';
 const SETTINGS_KEY = 'parking_settings';
@@ -24,21 +24,16 @@ export function useParking() {
   const [settings, setSettings] = useState<ParkingSettings>(mergedLocal);
   const [isLoading, setIsLoading] = useState(hasDB());
 
-  // ── Initial load from Supabase ──────────────────────────────────────────────
+  // ── Initial load from Supabase (somente veículos — settings ficam no localStorage) ──
   useEffect(() => {
     if (!hasDB()) return;
 
     (async () => {
       try {
-        const [dbVehicles, dbSettings] = await Promise.all([
-          dbFetchVehicles(),
-          dbFetchSettings(),
-        ]);
+        const dbVehicles = await dbFetchVehicles();
         setVehicles(dbVehicles);
-        if (dbSettings) setSettings(dbSettings);
       } catch (err) {
-        console.error('[OmniPark] Erro ao carregar dados do banco:', err);
-        // Fall back to localStorage data already in state
+        console.error('[OmniPark] Erro ao carregar veículos do banco:', err);
       } finally {
         setIsLoading(false);
       }
@@ -96,7 +91,7 @@ export function useParking() {
     return newVehicle;
   }, [vehicles]);
 
-  const registerExit = useCallback(async (vehicleId: string): Promise<Vehicle | null> => {
+  const registerExit = useCallback(async (vehicleId: string, customPricing?: typeof settings.pricing): Promise<Vehicle | null> => {
     const target = vehicles.find(v => v.id === vehicleId && v.status === 'parked');
     if (!target) return null;
 
@@ -104,7 +99,7 @@ export function useParking() {
     const amountPaid = calculateParkingFee(
       new Date(target.entryTime),
       exitTime,
-      settings.pricing
+      customPricing ?? settings.pricing
     );
 
     if (hasDB()) {
@@ -149,22 +144,25 @@ export function useParking() {
       .sort((a, b) => new Date(b.exitTime!).getTime() - new Date(a.exitTime!).getTime());
   }, [vehicles]);
 
-  const updateSettings = useCallback(async (newSettings: Partial<ParkingSettings>) => {
+  const deleteVehicle = useCallback(async (vehicleId: string): Promise<void> => {
+    if (hasDB()) {
+      await dbDeleteVehicle(vehicleId);
+    }
+    setVehicles(prev => prev.filter(v => v.id !== vehicleId));
+    if (!hasDB()) setLocalVehicles(prev => prev.filter(v => v.id !== vehicleId));
+  }, [setLocalVehicles]);
+
+  // Settings ficam exclusivamente no localStorage (device-specific: impressora, vagas, preços)
+  const updateSettings = useCallback((newSettings: Partial<ParkingSettings>) => {
     const merged = { ...settings, ...newSettings };
     setSettings(merged);
-    setLocalSettings(merged); // sempre persiste localmente como fallback
-    if (hasDB()) {
-      try { await dbUpsertSettings(merged); } catch (e) { console.error('[OmniPark] Erro ao salvar configurações:', e); }
-    }
+    setLocalSettings(merged);
   }, [settings, setLocalSettings]);
 
-  const updatePricing = useCallback(async (pricing: Partial<typeof settings.pricing>) => {
+  const updatePricing = useCallback((pricing: Partial<typeof settings.pricing>) => {
     const merged = { ...settings, pricing: { ...settings.pricing, ...pricing } };
     setSettings(merged);
-    setLocalSettings(merged); // sempre persiste localmente como fallback
-    if (hasDB()) {
-      try { await dbUpsertSettings(merged); } catch (e) { console.error('[OmniPark] Erro ao salvar preços:', e); }
-    }
+    setLocalSettings(merged);
   }, [settings, setLocalSettings]);
 
   return {
@@ -179,5 +177,6 @@ export function useParking() {
     getHistory,
     updateSettings,
     updatePricing,
+    deleteVehicle,
   };
 }

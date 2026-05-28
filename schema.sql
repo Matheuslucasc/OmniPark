@@ -134,3 +134,39 @@ CREATE OR REPLACE TRIGGER trg_camera_settings_updated_at
 CREATE OR REPLACE TRIGGER trg_parking_settings_updated_at
   BEFORE UPDATE ON parking_settings
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ============================================================
+-- Tabela: price_modules
+-- Tarifas especiais (ex: Festa do Pinhão, Show, Feriado)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS price_modules (
+  id                    SERIAL PRIMARY KEY,
+  name                  VARCHAR(100)   NOT NULL,
+  description           TEXT,
+  tolerance_minutes     INTEGER        NOT NULL DEFAULT 15,
+  first_hour_price      DECIMAL(10,2)  NOT NULL,
+  additional_hour_price DECIMAL(10,2)  NOT NULL,
+  daily_max_price       DECIMAL(10,2)  NOT NULL,
+  round_up_minutes      INTEGER        NOT NULL DEFAULT 10,
+  is_active             BOOLEAN        NOT NULL DEFAULT TRUE,
+  created_at            TIMESTAMPTZ    NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+-- Tabela: profiles
+-- Usuários do sistema com controle de aprovação pelo admin
+-- ============================================================
+CREATE TABLE IF NOT EXISTS profiles (
+  id         UUID PRIMARY KEY REFERENCES auth.users (id) ON DELETE CASCADE,
+  email      VARCHAR(255),
+  name       VARCHAR(100),
+  approved   BOOLEAN        NOT NULL DEFAULT FALSE,
+  role       VARCHAR(20)    NOT NULL DEFAULT 'operator'
+               CHECK (role IN ('admin', 'operator')),
+  created_at TIMESTAMPTZ    NOT NULL DEFAULT NOW()
+);
+
+-- Para aprovar um usuário, execute no SQL Editor do Supabase:
+-- UPDATE profiles SET approved = true WHERE email = 'usuario@email.com';
+-- Para tornar admin:
+-- UPDATE profiles SET approved = true, role = 'admin' WHERE email = 'admin@email.com';

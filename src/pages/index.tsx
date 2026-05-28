@@ -10,6 +10,7 @@ import { HistoryTable } from '@/components/parking/HistoryTable';
 import { SettingsPanel } from '@/components/parking/SettingsPanel';
 import { ReportsPanel } from '@/components/parking/ReportsPanel';
 import { CameraPanel } from '@/components/parking/CameraPanel';
+import { PriceModulesPanel } from '@/components/parking/PriceModulesPanel';
 import { PlateInput } from '@/components/parking/PlateInput';
 import { Button } from '@/components/ui/button';
 import { formatCurrency, formatPlate, formatTime } from '@/lib/parking-utils';
@@ -64,6 +65,7 @@ const Index = () => {
     getHistory,
     updateSettings,
     updatePricing,
+    deleteVehicle,
   } = useParking();
 
   const handleVehicleExit = (vehicle: Vehicle) => {
@@ -261,19 +263,20 @@ const Index = () => {
         return <ReportsPanel vehicles={vehicles} />;
 
       case 'history':
-        return <HistoryTable getHistory={getHistory} settings={settings} />;
+        return <HistoryTable getHistory={getHistory} onDelete={deleteVehicle} settings={settings} />;
 
       case 'cameras':
         return <CameraPanel />;
 
       case 'settings':
         return (
-          <div className="max-w-2xl">
+          <div className="max-w-2xl space-y-8">
             <SettingsPanel
               settings={settings}
               onUpdateSettings={updateSettings}
               onUpdatePricing={updatePricing}
             />
+            <PriceModulesPanel defaultPricing={settings.pricing} />
           </div>
         );
 

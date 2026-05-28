@@ -16,6 +16,14 @@ export interface PricingSettings {
   roundUpMinutes: number; // Round up to next hour after X minutes
 }
 
+export interface PriceModule {
+  id: string;
+  name: string;
+  description?: string;
+  pricing: PricingSettings;
+  isActive: boolean;
+}
+
 export type PaperSize = 'a4' | 'thermal80' | 'thermal58';
 
 export interface PrintSettings {

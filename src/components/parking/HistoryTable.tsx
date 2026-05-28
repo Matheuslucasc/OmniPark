@@ -7,20 +7,23 @@ import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { CalendarIcon, Search, Download, FileText, Printer } from 'lucide-react';
+import { CalendarIcon, Search, Download, FileText, Printer, Trash2 } from 'lucide-react';
+import { useState as useConfirmState } from 'react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 interface HistoryTableProps {
   getHistory: (filters: { startDate?: string; endDate?: string; plate?: string }) => Vehicle[];
+  onDelete: (vehicleId: string) => Promise<void>;
   settings: ParkingSettings;
 }
 
-export function HistoryTable({ getHistory, settings }: HistoryTableProps) {
+export function HistoryTable({ getHistory, onDelete, settings }: HistoryTableProps) {
   const [plateFilter, setPlateFilter] = useState('');
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
+  const [confirmDeleteId, setConfirmDeleteId] = useConfirmState<string | null>(null);
 
   const filteredHistory = useMemo(() => {
     return getHistory({
@@ -153,7 +156,7 @@ export function HistoryTable({ getHistory, settings }: HistoryTableProps) {
               <TableHead>Saída</TableHead>
               <TableHead>Permanência</TableHead>
               <TableHead className="text-right">Valor</TableHead>
-              <TableHead className="w-[80px]"></TableHead>
+              <TableHead className="w-[100px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -182,14 +185,51 @@ export function HistoryTable({ getHistory, settings }: HistoryTableProps) {
                     {formatCurrency(vehicle.amountPaid || 0)}
                   </TableCell>
                   <TableCell>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={() => handlePrintReceipt(vehicle)}
-                      title="Reimprimir comprovante"
-                    >
-                      <Printer className="h-4 w-4" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handlePrintReceipt(vehicle)}
+                        title="Reimprimir comprovante"
+                      >
+                        <Printer className="h-4 w-4" />
+                      </Button>
+                      {confirmDeleteId === vehicle.id ? (
+                        <>
+                          <Button
+                            variant="destructive"
+                            size="icon"
+                            className="h-8 w-8"
+                            title="Confirmar exclusão"
+                            onClick={async () => {
+                              await onDelete(vehicle.id);
+                              setConfirmDeleteId(null);
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => setConfirmDeleteId(null)}
+                            title="Cancelar"
+                          >
+                            ✕
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          title="Excluir registro"
+                          onClick={() => setConfirmDeleteId(vehicle.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))

@@ -1,41 +1,52 @@
 import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { PlateInput } from './PlateInput';
 import { PlateDisplay } from './PlateDisplay';
-import { Vehicle, PricingSettings, ParkingSettings } from '@/types/parking';
+import { Vehicle, PricingSettings, ParkingSettings, PriceModule } from '@/types/parking';
 import { formatDateTime, formatDuration, formatCurrency, calculateParkingFee } from '@/lib/parking-utils';
 import { printHtml, buildExitReceiptHtml } from '@/lib/print';
-import { LogOut, Printer, Check, Clock, DollarSign, Search } from 'lucide-react';
+import { usePriceModules } from '@/hooks/usePriceModules';
+import { LogOut, Printer, Check, Clock, DollarSign, Search, Tag, ChevronDown } from 'lucide-react';
 
 interface ExitDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (vehicleId: string) => Promise<Vehicle | null> | Vehicle | null;
+  onConfirm: (vehicleId: string, customPricing?: PricingSettings) => Promise<Vehicle | null> | Vehicle | null;
   findVehicle: (plate: string) => Vehicle | undefined;
   pricing: PricingSettings;
   settings: ParkingSettings;
   preSelectedVehicle?: Vehicle | null;
 }
 
-export function ExitDialog({ 
-  open, 
-  onOpenChange, 
-  onConfirm, 
+export function ExitDialog({
+  open,
+  onOpenChange,
+  onConfirm,
   findVehicle,
   pricing,
   settings,
-  preSelectedVehicle 
+  preSelectedVehicle
 }: ExitDialogProps) {
   const [plate, setPlate] = useState('');
   const [foundVehicle, setFoundVehicle] = useState<Vehicle | null>(null);
   const [exitedVehicle, setExitedVehicle] = useState<Vehicle | null>(null);
   const [estimatedFee, setEstimatedFee] = useState(0);
+  const [showModules, setShowModules] = useState(false);
+  const [selectedModule, setSelectedModule] = useState<PriceModule | null>(null);
+  const { modules } = usePriceModules();
+
+  const activePricing = selectedModule ? selectedModule.pricing : pricing;
 
   useEffect(() => {
     if (open && preSelectedVehicle) {
       setPlate(preSelectedVehicle.plate);
       setFoundVehicle(preSelectedVehicle);
+    }
+    if (!open) {
+      setSelectedModule(null);
+      setShowModules(false);
     }
   }, [open, preSelectedVehicle]);
 
@@ -44,11 +55,11 @@ export function ExitDialog({
       const fee = calculateParkingFee(
         new Date(foundVehicle.entryTime),
         new Date(),
-        pricing
+        activePricing
       );
       setEstimatedFee(fee);
     }
-  }, [foundVehicle, pricing]);
+  }, [foundVehicle, activePricing]);
 
   const handleSearch = () => {
     const vehicle = findVehicle(plate);
@@ -65,10 +76,10 @@ export function ExitDialog({
     if (!foundVehicle) return;
     setSubmitting(true);
     try {
-      const exited = await onConfirm(foundVehicle.id);
+      const exited = await onConfirm(foundVehicle.id, selectedModule ? selectedModule.pricing : undefined);
       if (exited) setExitedVehicle(exited);
     } catch {
-      // error silently — toast can be added here if needed
+      // silently handled
     } finally {
       setSubmitting(false);
     }
@@ -159,10 +170,56 @@ export function ExitDialog({
                   </div>
                 </div>
 
+                {/* Seletor de tarifa */}
+                {modules.length > 0 && (
+                  <div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full justify-between"
+                      onClick={() => setShowModules(v => !v)}
+                    >
+                      <span className="flex items-center gap-2">
+                        <Tag className="w-3.5 h-3.5" />
+                        {selectedModule ? selectedModule.name : 'Tarifa padrão'}
+                      </span>
+                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showModules ? 'rotate-180' : ''}`} />
+                    </Button>
+                    {showModules && (
+                      <div className="mt-1 border rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${!selectedModule ? 'bg-primary/10 font-medium' : ''}`}
+                          onClick={() => { setSelectedModule(null); setShowModules(false); }}
+                        >
+                          Tarifa padrão — {formatCurrency(pricing.firstHourPrice)}/h
+                        </button>
+                        {modules.map(m => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors border-t ${selectedModule?.id === m.id ? 'bg-primary/10 font-medium' : ''}`}
+                            onClick={() => { setSelectedModule(m); setShowModules(false); }}
+                          >
+                            <span className="font-medium">{m.name}</span>
+                            <span className="text-muted-foreground ml-2">
+                              {formatCurrency(m.pricing.firstHourPrice)}/h
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="p-4 bg-primary/10 rounded-xl border-2 border-primary/20">
                   <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground flex items-center gap-1">
-                      <DollarSign className="w-4 h-4" /> Valor a Pagar
+                    <span className="text-muted-foreground flex items-center gap-2">
+                      <DollarSign className="w-4 h-4" />
+                      Valor a Pagar
+                      {selectedModule && (
+                        <Badge variant="secondary" className="text-xs">{selectedModule.name}</Badge>
+                      )}
                     </span>
                     <span className="text-2xl font-bold text-primary">
                       {formatCurrency(estimatedFee)}
@@ -171,13 +228,10 @@ export function ExitDialog({
                 </div>
 
                 <div className="flex gap-2">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     className="flex-1"
-                    onClick={() => {
-                      setFoundVehicle(null);
-                      setPlate('');
-                    }}
+                    onClick={() => { setFoundVehicle(null); setPlate(''); }}
                   >
                     Cancelar
                   </Button>

@@ -1,5 +1,6 @@
-import { Car, LogIn, LogOut, History, Settings, BarChart3, Camera, X, Menu } from 'lucide-react';
+import { Car, LogIn, LogOut, History, Settings, BarChart3, Camera, X, Menu, Power } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
 
 interface SidebarProps {
   activeTab: string;
@@ -8,6 +9,21 @@ interface SidebarProps {
   totalSpots: number;
   mobileOpen: boolean;
   onMobileClose: () => void;
+}
+
+function LogoutButton() {
+  const { signOut, user } = useAuth();
+  if (!user) return null;
+  return (
+    <button
+      type="button"
+      onClick={signOut}
+      className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all text-sm hover:bg-sidebar-accent text-sidebar-foreground/70 hover:text-sidebar-foreground"
+    >
+      <Power className="w-4 h-4 shrink-0" />
+      <span className="truncate">{user.email}</span>
+    </button>
+  );
 }
 
 const menuItems = [
@@ -93,9 +109,10 @@ export function Sidebar({ activeTab, onTabChange, occupiedSpots, totalSpots, mob
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className="p-4 border-t border-sidebar-border text-xs text-sidebar-foreground/40 text-center">
-        OmniPark v1.0
+      {/* Footer / logout */}
+      <div className="p-3 border-t border-sidebar-border">
+        <LogoutButton />
+        <div className="text-xs text-sidebar-foreground/30 text-center mt-2">OmniPark v1.0</div>
       </div>
     </aside>
   );
