@@ -68,6 +68,7 @@ const Index = () => {
           const row = payload.new as { plate: string; image_url?: string };
           if (!row.plate) return;
           setLastReadPlate(row.plate);
+          setPlateImageUrl(row.image_url ?? undefined);
           pushPlateRead(row.plate, row.image_url ?? undefined);
         }
       )
@@ -143,28 +144,37 @@ const Index = () => {
             </div>
 
             {/* Camera read area */}
-            <div className="p-4 sm:p-6 bg-card rounded-xl border-2 border-border space-y-4">
-              <h3 className="text-sm font-medium text-muted-foreground">Leitura de Placa (Câmera)</h3>
+            <div className={`p-4 sm:p-6 bg-card rounded-xl border-2 space-y-4 transition-colors ${
+              lastReadPlate ? 'border-primary/60 bg-primary/5' : 'border-border'
+            }`}>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-muted-foreground">Leitura de Placa (Câmera)</h3>
+                {lastReadPlate && (
+                  <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium animate-pulse">
+                    Nova leitura
+                  </span>
+                )}
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Feed da câmera */}
+                {/* Foto da placa */}
                 <div className="relative aspect-video bg-muted rounded-lg overflow-hidden border-2 border-dashed border-border flex items-center justify-center">
                   {plateImageUrl ? (
                     <img
                       src={plateImageUrl}
-                      alt="Imagem da placa"
+                      alt="Foto da placa"
                       className="w-full h-full object-contain"
                     />
                   ) : (
                     <div className="text-center text-muted-foreground p-4">
                       <Car className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                      <p className="text-sm">Aguardando imagem da câmera…</p>
-                      <p className="text-xs mt-1 opacity-70">Configure câmeras na aba Câmeras</p>
+                      <p className="text-sm">Aguardando foto da câmera…</p>
+                      <p className="text-xs mt-1 opacity-70">O Python enviará a foto aqui</p>
                     </div>
                   )}
                 </div>
 
-                {/* Placa atual + entrada manual */}
+                {/* Placa atual + entrada */}
                 <div className="space-y-3">
                   <PlateDisplay plate={lastReadPlate || '---'} size="xl" variant={lastReadPlate ? 'highlight' : 'default'} />
                   <div>
@@ -179,9 +189,13 @@ const Index = () => {
                     />
                   </div>
                   {lastReadPlate && (
-                    <Button className="w-full" onClick={() => setEntryOpen(true)}>
-                      <LogIn className="w-4 h-4 mr-2" />
-                      Registrar Esta Placa
+                    <Button
+                      size="lg"
+                      className="w-full text-base font-bold shadow-md"
+                      onClick={() => setEntryOpen(true)}
+                    >
+                      <LogIn className="w-5 h-5 mr-2" />
+                      Dar Entrada — {lastReadPlate}
                     </Button>
                   )}
                 </div>

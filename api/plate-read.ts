@@ -1,14 +1,20 @@
 /**
  * POST /api/plate-read
  *
- * Recebe a leitura de placa do script Python e grava no Supabase.
- * O frontend escuta a tabela plate_reads via Supabase Realtime e
- * exibe a placa no dashboard em tempo real.
+ * Recebe a leitura de placa do script Python.
+ * - Faz upload da foto para Supabase Storage (bucket: plate-images)
+ * - Grava o registro em plate_reads com a URL da imagem
+ * - O frontend recebe via Supabase Realtime e exibe automaticamente
  *
- * Body esperado:
- *   { plate: "ABC1D23", confidence: 0.92, camera_id: 1 }
+ * Body JSON esperado:
+ *   {
+ *     plate:        "ABC1D23",    // texto da placa (obrigatório)
+ *     confidence:   0.92,         // confiança do modelo (0-1)
+ *     camera_id:    1,            // id da câmera (opcional)
+ *     image_base64: "..."         // foto da placa em base64 JPEG (opcional)
+ *   }
  *
- * Header obrigatório (quando PLATE_API_SECRET está configurado):
+ * Header (quando PLATE_API_SECRET está configurado no Vercel):
  *   Authorization: Bearer <PLATE_API_SECRET>
  */
 export const config = { runtime: 'edge' };
@@ -26,11 +32,50 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+async function uploadImagem(
+  supabaseUrl: string,
+  supabaseKey: string,
+  plate: string,
+  base64: string,
+): Promise<string | null> {
+  try {
+    // Decodifica base64 → bytes
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+    const filename = `${Date.now()}-${plate}.jpg`;
+
+    const res = await fetch(
+      `${supabaseUrl}/storage/v1/object/plate-images/${filename}`,
+      {
+        method: 'POST',
+        headers: {
+          apikey:        supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          'Content-Type': 'image/jpeg',
+        },
+        body: bytes,
+      }
+    );
+
+    if (!res.ok) {
+      console.warn('[plate-read] Upload falhou:', await res.text());
+      return null;
+    }
+
+    return `${supabaseUrl}/storage/v1/object/public/plate-images/${filename}`;
+  } catch (e) {
+    console.error('[plate-read] Erro no upload:', e);
+    return null;
+  }
+}
+
 export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-  if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+  if (req.method !== 'POST')   return new Response('Method Not Allowed', { status: 405 });
 
-  // ── Autenticação por chave secreta (opcional mas recomendado) ─────────────
+  // ── Autenticação ──────────────────────────────────────────────────────────
   const secret = process.env.PLATE_API_SECRET;
   if (secret) {
     const auth = req.headers.get('authorization') ?? '';
@@ -39,8 +84,8 @@ export default async function handler(req: Request): Promise<Response> {
     }
   }
 
-  // ── Parse do body ─────────────────────────────────────────────────────────
-  let body: { plate?: string; confidence?: number; camera_id?: number };
+  // ── Parse body ────────────────────────────────────────────────────────────
+  let body: { plate?: string; confidence?: number; camera_id?: number; image_base64?: string };
   try {
     body = await req.json();
   } catch {
@@ -48,36 +93,43 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   const plate = (body.plate ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (plate.length < 6) return json({ error: 'Placa inválida (mínimo 6 caracteres)' }, 400);
+  if (plate.length < 6) return json({ error: 'Placa inválida' }, 400);
 
   // ── Configuração Supabase ─────────────────────────────────────────────────
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
   if (!supabaseUrl || !supabaseKey) return json({ error: 'Supabase não configurado' }, 500);
 
+  // ── Upload da imagem (se enviada) ─────────────────────────────────────────
+  let imageUrl: string | null = null;
+  if (body.image_base64) {
+    imageUrl = await uploadImagem(supabaseUrl, supabaseKey, plate, body.image_base64);
+  }
+
   // ── Grava em plate_reads ──────────────────────────────────────────────────
   const res = await fetch(`${supabaseUrl}/rest/v1/plate_reads`, {
     method: 'POST',
     headers: {
-      apikey: supabaseKey,
+      apikey:        supabaseKey,
       Authorization: `Bearer ${supabaseKey}`,
       'Content-Type': 'application/json',
-      Prefer: 'return=representation',
+      Prefer:        'return=representation',
     },
     body: JSON.stringify({
       plate,
       confidence: body.confidence ?? null,
       camera_id:  body.camera_id  ?? null,
+      image_url:  imageUrl,
       processed:  false,
     }),
   });
 
   if (!res.ok) {
     const err = await res.text();
-    console.error('[plate-read] Supabase error:', err);
+    console.error('[plate-read] Erro Supabase:', err);
     return json({ error: err }, 500);
   }
 
   const [row] = await res.json();
-  return json({ success: true, id: row?.id, plate });
+  return json({ success: true, id: row?.id, plate, image_url: imageUrl });
 }
