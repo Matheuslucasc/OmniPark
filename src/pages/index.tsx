@@ -40,6 +40,7 @@ const Index = () => {
     parkedVehicles,
     settings,
     stats,
+    isLoading,
     registerEntry,
     registerExit,
     findVehicleByPlate,
@@ -239,7 +240,14 @@ const Index = () => {
         <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-auto">
           {/* Desktop page title */}
           <h2 className="hidden md:block text-2xl font-bold mb-6">{pageTitles[activeTab]}</h2>
-          {renderContent()}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-24 text-muted-foreground gap-3">
+              <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              Carregando dados do banco…
+            </div>
+          ) : (
+            renderContent()
+          )}
         </main>
       </div>
 

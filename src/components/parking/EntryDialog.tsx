@@ -12,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 interface EntryDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (plate: string, vehicleName?: string) => Vehicle;
+  onConfirm: (plate: string, vehicleName?: string) => Promise<Vehicle> | Vehicle;
   lastReadPlate?: string;
   plateImageUrl?: string;
   settings: ParkingSettings;
@@ -24,7 +24,9 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
   const [confirmedVehicle, setConfirmedVehicle] = useState<Vehicle | null>(null);
   const { toast } = useToast();
 
-  const handleConfirm = () => {
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleConfirm = async () => {
     if (plate.length < 6) {
       toast({
         title: "Placa inválida",
@@ -34,8 +36,15 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
       return;
     }
 
-    const vehicle = onConfirm(plate, vehicleName);
-    setConfirmedVehicle(vehicle);
+    setSubmitting(true);
+    try {
+      const vehicle = await onConfirm(plate, vehicleName);
+      setConfirmedVehicle(vehicle);
+    } catch {
+      toast({ title: "Erro ao registrar entrada", variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handlePrint = () => {
@@ -150,7 +159,7 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
               </Button>
             )}
 
-            <Button className="w-full" onClick={handleConfirm} disabled={plate.length < 6}>
+            <Button className="w-full" onClick={handleConfirm} disabled={plate.length < 6 || submitting}>
               <LogIn className="w-4 h-4 mr-2" />
               Confirmar Entrada
             </Button>

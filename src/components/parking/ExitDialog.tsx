@@ -10,7 +10,7 @@ import { LogOut, Printer, Check, Clock, DollarSign, Search } from 'lucide-react'
 interface ExitDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (vehicleId: string) => Vehicle | null;
+  onConfirm: (vehicleId: string) => Promise<Vehicle | null> | Vehicle | null;
   findVehicle: (plate: string) => Vehicle | undefined;
   pricing: PricingSettings;
   settings: ParkingSettings;
@@ -58,11 +58,18 @@ export function ExitDialog({
     }
   };
 
-  const handleConfirm = () => {
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleConfirm = async () => {
     if (!foundVehicle) return;
-    const exited = onConfirm(foundVehicle.id);
-    if (exited) {
-      setExitedVehicle(exited);
+    setSubmitting(true);
+    try {
+      const exited = await onConfirm(foundVehicle.id);
+      if (exited) setExitedVehicle(exited);
+    } catch {
+      // error silently — toast can be added here if needed
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -216,9 +223,9 @@ export function ExitDialog({
                   >
                     Cancelar
                   </Button>
-                  <Button className="flex-1" onClick={handleConfirm}>
+                  <Button className="flex-1" onClick={handleConfirm} disabled={submitting}>
                     <LogOut className="w-4 h-4 mr-2" />
-                    Confirmar Saída
+                    {submitting ? 'Registrando…' : 'Confirmar Saída'}
                   </Button>
                 </div>
               </div>
