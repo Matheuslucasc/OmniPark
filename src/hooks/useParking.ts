@@ -3,7 +3,7 @@ import { useLocalStorage } from './useLocalStorage';
 import { Vehicle, ParkingSettings, ParkingStats, DEFAULT_SETTINGS, HistoryFilters } from '@/types/parking';
 import { calculateParkingFee, generateId, isToday } from '@/lib/parking-utils';
 import { hasDB } from '@/lib/supabase';
-import { dbFetchVehicles, dbInsertVehicle, dbUpdateVehicleExit, dbDeleteVehicle } from '@/lib/db';
+import { dbFetchVehicles, dbInsertVehicle, dbUpdateVehicleExit, dbDeleteVehicle, dbFetchSettings, dbUpsertSettings } from '@/lib/db';
 
 const VEHICLES_KEY = 'parking_vehicles';
 const SETTINGS_KEY = 'parking_settings';
@@ -24,20 +24,39 @@ export function useParking() {
   const [settings, setSettings] = useState<ParkingSettings>(mergedLocal);
   const [isLoading, setIsLoading] = useState(hasDB());
 
-  // ── Initial load from Supabase (somente veículos — settings ficam no localStorage) ──
+  // ── Initial load from Supabase ──────────────────────────────────────────────
   useEffect(() => {
     if (!hasDB()) return;
 
     (async () => {
       try {
-        const dbVehicles = await dbFetchVehicles();
+        const [dbVehicles, dbSettingsResult] = await Promise.all([
+          dbFetchVehicles(),
+          dbFetchSettings(),
+        ]);
+
         setVehicles(dbVehicles);
+
+        if (dbSettingsResult?.userSaved) {
+          // O usuário já salvou configurações no banco — usa os valores do Supabase
+          // mas mantém as print settings locais (device-specific)
+          const synced: ParkingSettings = {
+            ...dbSettingsResult.settings,
+            print: mergedLocal.print,
+          };
+          setSettings(synced);
+          setLocalSettings(synced);
+        } else if (dbSettingsResult && !dbSettingsResult.userSaved) {
+          // Banco tem apenas os defaults do schema — envia as configs locais para o banco
+          try { await dbUpsertSettings(mergedLocal); } catch { /* ignora */ }
+        }
       } catch (err) {
-        console.error('[OmniPark] Erro ao carregar veículos do banco:', err);
+        console.error('[OmniPark] Erro ao carregar dados do banco:', err);
       } finally {
         setIsLoading(false);
       }
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
@@ -152,17 +171,22 @@ export function useParking() {
     if (!hasDB()) setLocalVehicles(prev => prev.filter(v => v.id !== vehicleId));
   }, [setLocalVehicles]);
 
-  // Settings ficam exclusivamente no localStorage (device-specific: impressora, vagas, preços)
   const updateSettings = useCallback((newSettings: Partial<ParkingSettings>) => {
     const merged = { ...settings, ...newSettings };
     setSettings(merged);
     setLocalSettings(merged);
+    if (hasDB()) {
+      dbUpsertSettings(merged).catch(e => console.error('[OmniPark] Erro ao salvar settings:', e));
+    }
   }, [settings, setLocalSettings]);
 
   const updatePricing = useCallback((pricing: Partial<typeof settings.pricing>) => {
     const merged = { ...settings, pricing: { ...settings.pricing, ...pricing } };
     setSettings(merged);
     setLocalSettings(merged);
+    if (hasDB()) {
+      dbUpsertSettings(merged).catch(e => console.error('[OmniPark] Erro ao salvar preços:', e));
+    }
   }, [settings, setLocalSettings]);
 
   return {
