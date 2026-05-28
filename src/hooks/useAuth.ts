@@ -59,16 +59,14 @@ export function useAuth(): AuthState {
 
   const signUp = async (email: string, password: string, name: string): Promise<string | null> => {
     if (!supabase) return null;
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    // Passa o nome nos metadados — o trigger handle_new_user() usa raw_user_meta_data->>'name'
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { name } },
+    });
     if (error) return error.message;
-    if (data.user) {
-      await supabase.from('profiles').insert({
-        id: data.user.id,
-        email,
-        name,
-        approved: false,
-      });
-    }
+    // O perfil é criado automaticamente pelo trigger no banco (handle_new_user)
     return null;
   };
 

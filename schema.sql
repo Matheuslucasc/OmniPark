@@ -166,6 +166,38 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at TIMESTAMPTZ    NOT NULL DEFAULT NOW()
 );
 
+-- ============================================================
+-- Trigger: cria perfil automaticamente ao registrar usuário
+-- IMPORTANTE: execute este bloco separadamente no SQL Editor
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, name, approved)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
+    FALSE
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Política: usuário autenticado pode ler o próprio perfil
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "usuarios podem ler proprio perfil" ON profiles;
+CREATE POLICY "usuarios podem ler proprio perfil"
+  ON profiles FOR SELECT
+  USING (auth.uid() = id);
+
 -- Para aprovar um usuário, execute no SQL Editor do Supabase:
 -- UPDATE profiles SET approved = true WHERE email = 'usuario@email.com';
 -- Para tornar admin:
