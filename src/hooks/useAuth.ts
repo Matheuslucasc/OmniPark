@@ -18,11 +18,29 @@ export function useAuth(): AuthState {
 
   const checkApproval = async (u: User) => {
     if (!supabase) { setStatus('approved'); return; }
-    const { data } = await supabase
+
+    const { data, error } = await supabase
       .from('profiles')
       .select('approved')
       .eq('id', u.id)
       .single();
+
+    if (error) {
+      console.error('[OmniPark] Erro ao checar perfil:', error.message, error.code);
+
+      // Perfil não existe — cria com approved=false e aguarda aprovação
+      if (error.code === 'PGRST116') {
+        await supabase.from('profiles').upsert({
+          id:       u.id,
+          email:    u.email,
+          name:     u.user_metadata?.name ?? u.email?.split('@')[0] ?? '',
+          approved: false,
+        }, { onConflict: 'id' });
+        setStatus('pending_approval');
+        return;
+      }
+    }
+
     setStatus(data?.approved ? 'approved' : 'pending_approval');
   };
 
