@@ -21,7 +21,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Car, LogIn, UserPlus, Clock } from 'lucide-react';
 
 export default function Login() {
-  const { signIn, signUp, status } = useAuth();
+  const { signIn, signUp, signOut, status } = useAuth();
   const [mode, setMode] = useState<'login' | 'register' | 'pending'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -49,7 +49,7 @@ export default function Login() {
             <Button
               variant="outline"
               className="w-full mt-4"
-              onClick={() => setMode('login')}
+              onClick={() => { signOut(); setMode('login'); }}
             >
               Voltar para o login
             </Button>
