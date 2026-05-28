@@ -26,16 +26,9 @@ export function SettingsPanel({ settings, onUpdateSettings, onUpdatePricing }: S
   }, [settings]);
 
   const handleSave = () => {
-    onUpdateSettings({
-      totalSpots: localSettings.totalSpots,
-      parkingName: localSettings.parkingName,
-      parkingAddress: localSettings.parkingAddress,
-      parkingPhone: localSettings.parkingPhone,
-      parkingCNPJ: localSettings.parkingCNPJ,
-      ticketObservation: localSettings.ticketObservation,
-    });
-    onUpdatePricing(localSettings.pricing);
-    
+    // passa tudo de uma vez para evitar race condition entre dois setSettings separados
+    onUpdateSettings(localSettings);
+
     toast({
       title: "Configurações salvas",
       description: "As alterações foram aplicadas com sucesso.",
