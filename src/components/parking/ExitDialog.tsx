@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +8,7 @@ import { Vehicle, PricingSettings, ParkingSettings, PriceModule } from '@/types/
 import { formatDateTime, formatDuration, formatCurrency, calculateParkingFee } from '@/lib/parking-utils';
 import { printHtml, buildExitReceiptHtml } from '@/lib/print';
 import { usePriceModules } from '@/hooks/usePriceModules';
-import { LogOut, Printer, Check, Clock, DollarSign, Search, Tag, ChevronDown } from 'lucide-react';
+import { LogOut, Printer, Check, Clock, DollarSign, Search, CheckCircle2, Tag } from 'lucide-react';
 
 interface ExitDialogProps {
   open: boolean;
@@ -27,17 +27,35 @@ export function ExitDialog({
   findVehicle,
   pricing,
   settings,
-  preSelectedVehicle
+  preSelectedVehicle,
 }: ExitDialogProps) {
   const [plate, setPlate] = useState('');
   const [foundVehicle, setFoundVehicle] = useState<Vehicle | null>(null);
   const [exitedVehicle, setExitedVehicle] = useState<Vehicle | null>(null);
-  const [estimatedFee, setEstimatedFee] = useState(0);
-  const [showModules, setShowModules] = useState(false);
   const [selectedModule, setSelectedModule] = useState<PriceModule | null>(null);
+  const [fee, setFee] = useState(0);
+  const [duration, setDuration] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const { modules } = usePriceModules();
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const activePricing = selectedModule ? selectedModule.pricing : pricing;
+
+  // Recalcula preço + duração a cada 30 segundos
+  const recalc = (vehicle: Vehicle, prc: PricingSettings) => {
+    const now = new Date();
+    setFee(calculateParkingFee(new Date(vehicle.entryTime), now, prc));
+    setDuration(formatDuration(new Date(vehicle.entryTime), now));
+  };
+
+  useEffect(() => {
+    if (foundVehicle) {
+      recalc(foundVehicle, activePricing);
+      timerRef.current = setInterval(() => recalc(foundVehicle, activePricing), 30_000);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [foundVehicle, activePricing]);
 
   useEffect(() => {
     if (open && preSelectedVehicle) {
@@ -46,40 +64,23 @@ export function ExitDialog({
     }
     if (!open) {
       setSelectedModule(null);
-      setShowModules(false);
+      setPlate('');
+      setFoundVehicle(null);
+      setExitedVehicle(null);
     }
   }, [open, preSelectedVehicle]);
 
-  useEffect(() => {
-    if (foundVehicle) {
-      const fee = calculateParkingFee(
-        new Date(foundVehicle.entryTime),
-        new Date(),
-        activePricing
-      );
-      setEstimatedFee(fee);
-    }
-  }, [foundVehicle, activePricing]);
-
   const handleSearch = () => {
-    const vehicle = findVehicle(plate);
-    if (vehicle) {
-      setFoundVehicle(vehicle);
-    } else {
-      setFoundVehicle(null);
-    }
+    const v = findVehicle(plate);
+    setFoundVehicle(v ?? null);
   };
-
-  const [submitting, setSubmitting] = useState(false);
 
   const handleConfirm = async () => {
     if (!foundVehicle) return;
     setSubmitting(true);
     try {
-      const exited = await onConfirm(foundVehicle.id, selectedModule ? selectedModule.pricing : undefined);
+      const exited = await onConfirm(foundVehicle.id, selectedModule?.pricing);
       if (exited) setExitedVehicle(exited);
-    } catch {
-      // silently handled
     } finally {
       setSubmitting(false);
     }
@@ -87,14 +88,13 @@ export function ExitDialog({
 
   const handlePrint = () => {
     if (!exitedVehicle) return;
-    const duration = formatDuration(new Date(exitedVehicle.entryTime), new Date(exitedVehicle.exitTime!));
     printHtml(
       buildExitReceiptHtml({
         plate:             exitedVehicle.plate,
         vehicleName:       exitedVehicle.vehicleName,
         entryTime:         formatDateTime(exitedVehicle.entryTime),
         exitTime:          formatDateTime(exitedVehicle.exitTime!),
-        duration,
+        duration:          formatDuration(new Date(exitedVehicle.entryTime), new Date(exitedVehicle.exitTime!)),
         amountPaid:        exitedVehicle.amountPaid ?? 0,
         id:                exitedVehicle.id,
         parkingName:       settings.parkingName,
@@ -106,16 +106,61 @@ export function ExitDialog({
     );
   };
 
-  const handleClose = () => {
-    setPlate('');
-    setFoundVehicle(null);
-    setExitedVehicle(null);
-    onOpenChange(false);
-  };
+  // ── Tariff card component ──────────────────────────────────────────
+  const TariffCard = ({
+    label,
+    description,
+    p,
+    active,
+    isSpecial,
+    onClick,
+  }: {
+    label: string;
+    description?: string;
+    p: PricingSettings;
+    active: boolean;
+    isSpecial?: boolean;
+    onClick: () => void;
+  }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
+        active
+          ? 'border-primary bg-primary/5 shadow-sm'
+          : 'border-border hover:border-primary/40 bg-card'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-sm">{label}</span>
+            {isSpecial && (
+              <Badge variant="secondary" className="text-xs py-0">Especial</Badge>
+            )}
+            {active && (
+              <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
+            )}
+          </div>
+          {description && (
+            <p className="text-xs text-muted-foreground mt-0.5 truncate">{description}</p>
+          )}
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground">
+            <span>1ª hora: <strong className="text-foreground">{formatCurrency(p.firstHourPrice)}</strong></span>
+            <span>Adic.: <strong className="text-foreground">{formatCurrency(p.additionalHourPrice)}</strong></span>
+            <span>Máx.: <strong className="text-foreground">{formatCurrency(p.dailyMaxPrice)}</strong></span>
+            {p.toleranceMinutes > 0 && (
+              <span>Tolerância: <strong className="text-foreground">{p.toleranceMinutes}min</strong></span>
+            )}
+          </div>
+        </div>
+      </div>
+    </button>
+  );
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={open} onOpenChange={() => onOpenChange(false)}>
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <LogOut className="w-5 h-5 text-primary" />
@@ -125,108 +170,98 @@ export function ExitDialog({
 
         {!exitedVehicle ? (
           <div className="space-y-4">
+            {/* ── Busca de placa ── */}
             {!foundVehicle ? (
               <>
                 <div>
                   <label className="text-sm font-medium mb-2 block">Buscar Placa</label>
                   <PlateInput
                     value={plate}
-                    onChange={(val) => {
-                      setPlate(val);
-                      setFoundVehicle(null);
-                    }}
+                    onChange={val => { setPlate(val); setFoundVehicle(null); }}
                     onSubmit={handleSearch}
                     autoFocus
                   />
                 </div>
-
                 <Button className="w-full" onClick={handleSearch} disabled={plate.length < 6}>
                   <Search className="w-4 h-4 mr-2" />
                   Buscar Veículo
                 </Button>
-
-                {plate.length >= 6 && !foundVehicle && (
-                  <p className="text-sm text-muted-foreground text-center">
+                {plate.length >= 6 && (
+                  <p className="text-xs text-muted-foreground text-center">
                     Pressione Enter ou clique em Buscar
                   </p>
                 )}
               </>
             ) : (
               <div className="space-y-4">
+                {/* ── Info do veículo ── */}
                 <div className="p-4 bg-secondary rounded-xl">
                   <PlateDisplay plate={foundVehicle.plate} size="lg" className="w-full justify-center" />
-                  
-                  <div className="mt-4 space-y-2 text-sm">
-                    <div className="flex justify-between items-center">
+                  {foundVehicle.vehicleName && (
+                    <p className="text-center text-sm text-muted-foreground mt-1">{foundVehicle.vehicleName}</p>
+                  )}
+                  <div className="mt-3 space-y-1.5 text-sm">
+                    <div className="flex justify-between">
                       <span className="text-muted-foreground flex items-center gap-1">
-                        <Clock className="w-4 h-4" /> Entrada
+                        <Clock className="w-3.5 h-3.5" /> Entrada
                       </span>
                       <span className="font-medium">{formatDateTime(foundVehicle.entryTime)}</span>
                     </div>
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between">
                       <span className="text-muted-foreground">Permanência</span>
-                      <span className="font-medium">{formatDuration(new Date(foundVehicle.entryTime))}</span>
+                      <span className="font-medium">{duration}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Seletor de tarifa */}
-                {modules.length > 0 && (
-                  <div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full justify-between"
-                      onClick={() => setShowModules(v => !v)}
-                    >
-                      <span className="flex items-center gap-2">
-                        <Tag className="w-3.5 h-3.5" />
-                        {selectedModule ? selectedModule.name : 'Tarifa padrão'}
-                      </span>
-                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showModules ? 'rotate-180' : ''}`} />
-                    </Button>
-                    {showModules && (
-                      <div className="mt-1 border rounded-lg overflow-hidden">
-                        <button
-                          type="button"
-                          className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${!selectedModule ? 'bg-primary/10 font-medium' : ''}`}
-                          onClick={() => { setSelectedModule(null); setShowModules(false); }}
-                        >
-                          Tarifa padrão — {formatCurrency(pricing.firstHourPrice)}/h
-                        </button>
-                        {modules.map(m => (
-                          <button
-                            key={m.id}
-                            type="button"
-                            className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors border-t ${selectedModule?.id === m.id ? 'bg-primary/10 font-medium' : ''}`}
-                            onClick={() => { setSelectedModule(m); setShowModules(false); }}
-                          >
-                            <span className="font-medium">{m.name}</span>
-                            <span className="text-muted-foreground ml-2">
-                              {formatCurrency(m.pricing.firstHourPrice)}/h
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                {/* ── Seletor de tabela de preços ── */}
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5 mb-2">
+                    <Tag className="w-3.5 h-3.5" />
+                    Tabela de Preços
+                  </label>
+                  <div className="space-y-2">
+                    <TariffCard
+                      label="Tarifa Padrão"
+                      p={pricing}
+                      active={selectedModule === null}
+                      onClick={() => setSelectedModule(null)}
+                    />
+                    {modules.map(m => (
+                      <TariffCard
+                        key={m.id}
+                        label={m.name}
+                        description={m.description}
+                        p={m.pricing}
+                        active={selectedModule?.id === m.id}
+                        isSpecial
+                        onClick={() => setSelectedModule(m)}
+                      />
+                    ))}
                   </div>
-                )}
+                </div>
 
+                {/* ── Valor calculado ── */}
                 <div className="p-4 bg-primary/10 rounded-xl border-2 border-primary/20">
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground flex items-center gap-2">
-                      <DollarSign className="w-4 h-4" />
-                      Valor a Pagar
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
+                        <DollarSign className="w-4 h-4" />
+                        Valor a Cobrar
+                      </div>
                       {selectedModule && (
-                        <Badge variant="secondary" className="text-xs">{selectedModule.name}</Badge>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Tarifa: {selectedModule.name}
+                        </p>
                       )}
-                    </span>
-                    <span className="text-2xl font-bold text-primary">
-                      {formatCurrency(estimatedFee)}
+                    </div>
+                    <span className="text-3xl font-bold text-primary">
+                      {formatCurrency(fee)}
                     </span>
                   </div>
                 </div>
 
+                {/* ── Ações ── */}
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
@@ -244,14 +279,13 @@ export function ExitDialog({
             )}
           </div>
         ) : (
+          /* ── Confirmação ── */
           <div className="space-y-4 text-center">
             <div className="p-4 bg-success/10 rounded-xl border-2 border-success/20">
               <Check className="w-12 h-12 text-success mx-auto mb-2" />
               <p className="font-medium text-success">Saída Registrada!</p>
             </div>
-
             <PlateDisplay plate={exitedVehicle.plate} size="lg" />
-
             <div className="p-4 bg-secondary rounded-xl space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Permanência:</span>
@@ -260,19 +294,18 @@ export function ExitDialog({
                 </span>
               </div>
               <div className="flex justify-between text-lg">
-                <span className="font-medium">Total Pago:</span>
+                <span className="font-medium">Total Cobrado:</span>
                 <span className="font-bold text-primary">
                   {formatCurrency(exitedVehicle.amountPaid || 0)}
                 </span>
               </div>
             </div>
-
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={handlePrint}>
                 <Printer className="w-4 h-4 mr-2" />
                 Imprimir
               </Button>
-              <Button className="flex-1" onClick={handleClose}>
+              <Button className="flex-1" onClick={() => onOpenChange(false)}>
                 Concluir
               </Button>
             </div>
