@@ -145,20 +145,18 @@ export function useParking() {
   const updateSettings = useCallback(async (newSettings: Partial<ParkingSettings>) => {
     const merged = { ...settings, ...newSettings };
     setSettings(merged);
+    setLocalSettings(merged); // sempre persiste localmente como fallback
     if (hasDB()) {
-      await dbUpsertSettings(merged);
-    } else {
-      setLocalSettings(merged);
+      try { await dbUpsertSettings(merged); } catch (e) { console.error('[OmniPark] Erro ao salvar configurações:', e); }
     }
   }, [settings, setLocalSettings]);
 
   const updatePricing = useCallback(async (pricing: Partial<typeof settings.pricing>) => {
     const merged = { ...settings, pricing: { ...settings.pricing, ...pricing } };
     setSettings(merged);
+    setLocalSettings(merged); // sempre persiste localmente como fallback
     if (hasDB()) {
-      await dbUpsertSettings(merged);
-    } else {
-      setLocalSettings(merged);
+      try { await dbUpsertSettings(merged); } catch (e) { console.error('[OmniPark] Erro ao salvar preços:', e); }
     }
   }, [settings, setLocalSettings]);
 

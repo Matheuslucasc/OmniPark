@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Save, Building, DollarSign, Clock, FileText } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { formatCurrency } from '@/lib/parking-utils';
 import { TicketPreview } from './TicketPreview';
@@ -19,6 +19,11 @@ interface SettingsPanelProps {
 export function SettingsPanel({ settings, onUpdateSettings, onUpdatePricing }: SettingsPanelProps) {
   const [localSettings, setLocalSettings] = useState(settings);
   const { toast } = useToast();
+
+  // Sincroniza quando o banco carrega as configurações salvas
+  useEffect(() => {
+    setLocalSettings(settings);
+  }, [settings]);
 
   const handleSave = () => {
     onUpdateSettings({

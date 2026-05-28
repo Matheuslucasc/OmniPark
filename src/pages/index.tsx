@@ -12,9 +12,15 @@ import { ReportsPanel } from '@/components/parking/ReportsPanel';
 import { CameraPanel } from '@/components/parking/CameraPanel';
 import { PlateInput } from '@/components/parking/PlateInput';
 import { Button } from '@/components/ui/button';
-import { formatCurrency } from '@/lib/parking-utils';
-import { Car, DollarSign, LogIn, LogOut, ParkingCircle, Menu } from 'lucide-react';
+import { formatCurrency, formatPlate, formatTime } from '@/lib/parking-utils';
+import { Car, DollarSign, LogIn, LogOut, ParkingCircle, Menu, Clock } from 'lucide-react';
 import { Vehicle } from '@/types/parking';
+
+interface PlateRead {
+  plate: string;
+  imageUrl?: string;
+  at: Date;
+}
 
 const pageTitles: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -34,6 +40,17 @@ const Index = () => {
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [lastReadPlate, setLastReadPlate] = useState('');
   const [plateImageUrl, setPlateImageUrl] = useState<string | undefined>();
+  const [recentPlates, setRecentPlates] = useState<PlateRead[]>([]);
+
+  const pushPlateRead = (plate: string, imageUrl?: string) => {
+    const normalized = plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (normalized.length < 6) return;
+    setRecentPlates(prev => {
+      // não duplica se a placa mais recente for a mesma
+      if (prev[0]?.plate === normalized) return prev;
+      return [{ plate: normalized, imageUrl, at: new Date() }, ...prev].slice(0, 2);
+    });
+  };
 
   const {
     vehicles,
@@ -100,9 +117,11 @@ const Index = () => {
             </div>
 
             {/* Camera read area */}
-            <div className="p-4 sm:p-6 bg-card rounded-xl border-2 border-border">
-              <h3 className="text-sm font-medium text-muted-foreground mb-3">Última Placa Lida (Câmera)</h3>
+            <div className="p-4 sm:p-6 bg-card rounded-xl border-2 border-border space-y-4">
+              <h3 className="text-sm font-medium text-muted-foreground">Leitura de Placa (Câmera)</h3>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Feed da câmera */}
                 <div className="relative aspect-video bg-muted rounded-lg overflow-hidden border-2 border-dashed border-border flex items-center justify-center">
                   {plateImageUrl ? (
                     <img
@@ -119,13 +138,17 @@ const Index = () => {
                   )}
                 </div>
 
+                {/* Placa atual + entrada manual */}
                 <div className="space-y-3">
                   <PlateDisplay plate={lastReadPlate || '---'} size="xl" variant={lastReadPlate ? 'highlight' : 'default'} />
                   <div>
                     <label className="text-xs text-muted-foreground block mb-1">Entrada manual / correção:</label>
                     <PlateInput
                       value={lastReadPlate}
-                      onChange={setLastReadPlate}
+                      onChange={(val) => {
+                        setLastReadPlate(val);
+                        pushPlateRead(val, plateImageUrl);
+                      }}
                       placeholder="Digite a placa…"
                     />
                   </div>
@@ -137,6 +160,54 @@ const Index = () => {
                   )}
                 </div>
               </div>
+
+              {/* Últimas 2 placas lidas */}
+              {recentPlates.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Últimas placas lidas:</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {recentPlates.map((read, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-3 p-3 bg-muted/60 rounded-lg border border-border hover:border-primary/40 transition-colors"
+                      >
+                        {/* Miniatura da imagem ou ícone */}
+                        <div className="w-16 h-10 rounded overflow-hidden bg-background border border-border shrink-0 flex items-center justify-center">
+                          {read.imageUrl ? (
+                            <img src={read.imageUrl} alt="placa" className="w-full h-full object-contain" />
+                          ) : (
+                            <Car className="w-5 h-5 text-muted-foreground opacity-50" />
+                          )}
+                        </div>
+
+                        {/* Placa + horário */}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-mono font-bold text-base tracking-widest truncate">
+                            {formatPlate(read.plate)}
+                          </p>
+                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                            <Clock className="w-3 h-3" />
+                            {formatTime(read.at)}
+                          </p>
+                        </div>
+
+                        {/* Botão rápido */}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="shrink-0"
+                          onClick={() => {
+                            setLastReadPlate(read.plate);
+                            setEntryOpen(true);
+                          }}
+                        >
+                          <LogIn className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Parked vehicles */}
