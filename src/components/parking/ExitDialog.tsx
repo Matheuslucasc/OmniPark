@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -33,29 +33,25 @@ export function ExitDialog({
   const [foundVehicle, setFoundVehicle] = useState<Vehicle | null>(null);
   const [exitedVehicle, setExitedVehicle] = useState<Vehicle | null>(null);
   const [selectedModule, setSelectedModule] = useState<PriceModule | null>(null);
-  const [fee, setFee] = useState(0);
-  const [duration, setDuration] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [tick, setTick] = useState(0);
   const { modules } = usePriceModules();
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const activePricing = selectedModule ? selectedModule.pricing : pricing;
-
-  // Recalcula preço + duração a cada 30 segundos
-  const recalc = (vehicle: Vehicle, prc: PricingSettings) => {
-    const now = new Date();
-    setFee(calculateParkingFee(new Date(vehicle.entryTime), now, prc));
-    setDuration(formatDuration(new Date(vehicle.entryTime), now));
-  };
-
+  // Tick a cada 30s para atualizar duração e preço
   useEffect(() => {
-    if (foundVehicle) {
-      recalc(foundVehicle, activePricing);
-      timerRef.current = setInterval(() => recalc(foundVehicle, activePricing), 30_000);
-    }
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [foundVehicle, activePricing]);
+    if (!foundVehicle) return;
+    const id = setInterval(() => setTick(t => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, [foundVehicle]);
+
+  // Preço e duração calculados sempre frescos — reagem a qualquer mudança
+  const activePricing = selectedModule?.pricing ?? pricing;
+  const fee = foundVehicle
+    ? calculateParkingFee(new Date(foundVehicle.entryTime), new Date(), activePricing)
+    : 0;
+  const duration = foundVehicle
+    ? formatDuration(new Date(foundVehicle.entryTime), new Date())
+    : '';
 
   useEffect(() => {
     if (open && preSelectedVehicle) {
