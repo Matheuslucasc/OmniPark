@@ -1,4 +1,18 @@
 import { useState } from 'react';
+
+function translateError(err: string): string {
+  if (err.includes('rate limit') || err.includes('email rate'))
+    return 'Limite de emails atingido. Desative a confirmação de email em Supabase → Authentication → Settings.';
+  if (err.includes('Invalid login credentials'))
+    return 'Email ou senha incorretos.';
+  if (err.includes('already registered') || err.includes('already been registered'))
+    return 'Este email já está cadastrado. Faça login.';
+  if (err.includes('Password should be'))
+    return 'A senha deve ter no mínimo 6 caracteres.';
+  if (err.includes('Unable to validate email'))
+    return 'Email inválido.';
+  return err;
+}
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,11 +66,11 @@ export default function Login() {
     try {
       if (mode === 'login') {
         const err = await signIn(email, password);
-        if (err) setError(err === 'Invalid login credentials' ? 'Email ou senha incorretos' : err);
+        if (err) setError(translateError(err));
       } else {
         if (!name.trim()) { setError('Informe seu nome'); return; }
         const err = await signUp(email, password, name);
-        if (err) setError(err);
+        if (err) setError(translateError(err));
         else setMode('pending');
       }
     } finally {
