@@ -16,6 +16,14 @@ export interface PricingSettings {
   roundUpMinutes: number; // Round up to next hour after X minutes
 }
 
+export type PaperSize = 'a4' | 'thermal80' | 'thermal58';
+
+export interface PrintSettings {
+  paperSize: PaperSize;
+  fontSize: number;      // pt
+  printerName: string;   // apenas informativo — lembrete para o operador
+}
+
 export interface ParkingSettings {
   totalSpots: number;
   parkingName: string;
@@ -24,6 +32,7 @@ export interface ParkingSettings {
   parkingCNPJ: string;
   ticketObservation: string;
   pricing: PricingSettings;
+  print: PrintSettings;
 }
 
 export interface ParkingStats {
@@ -77,5 +86,10 @@ export const DEFAULT_SETTINGS: ParkingSettings = {
     additionalHourPrice: 5,
     dailyMaxPrice: 50,
     roundUpMinutes: 10,
+  },
+  print: {
+    paperSize: 'thermal80',
+    fontSize: 12,
+    printerName: '',
   },
 };

@@ -5,6 +5,7 @@ import { PlateInput } from './PlateInput';
 import { PlateDisplay } from './PlateDisplay';
 import { Vehicle, PricingSettings, ParkingSettings } from '@/types/parking';
 import { formatDateTime, formatDuration, formatCurrency, calculateParkingFee } from '@/lib/parking-utils';
+import { printHtml, buildExitReceiptHtml } from '@/lib/print';
 import { LogOut, Printer, Check, Clock, DollarSign, Search } from 'lucide-react';
 
 interface ExitDialogProps {
@@ -75,66 +76,23 @@ export function ExitDialog({
 
   const handlePrint = () => {
     if (!exitedVehicle) return;
-    
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
-    const duration = formatDuration(
-      new Date(exitedVehicle.entryTime), 
-      new Date(exitedVehicle.exitTime!)
+    const duration = formatDuration(new Date(exitedVehicle.entryTime), new Date(exitedVehicle.exitTime!));
+    printHtml(
+      buildExitReceiptHtml({
+        plate:             exitedVehicle.plate,
+        vehicleName:       exitedVehicle.vehicleName,
+        entryTime:         formatDateTime(exitedVehicle.entryTime),
+        exitTime:          formatDateTime(exitedVehicle.exitTime!),
+        duration,
+        amountPaid:        exitedVehicle.amountPaid ?? 0,
+        id:                exitedVehicle.id,
+        parkingName:       settings.parkingName,
+        parkingAddress:    settings.parkingAddress,
+        parkingPhone:      settings.parkingPhone,
+        ticketObservation: settings.ticketObservation,
+      }),
+      settings.print,
     );
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Comprovante de Saída</title>
-          <style>
-            body { font-family: 'Courier New', monospace; padding: 20px; max-width: 300px; margin: 0 auto; }
-            .header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
-            .name { font-size: 16px; font-weight: bold; }
-            .address { font-size: 11px; color: #666; }
-            .plate { font-size: 28px; font-weight: bold; letter-spacing: 4px; text-align: center; margin: 15px 0; padding: 8px; border: 2px solid #000; }
-            .info { margin: 8px 0; display: flex; justify-content: space-between; }
-            .label { font-size: 12px; }
-            .value { font-size: 12px; font-weight: bold; }
-            .total { font-size: 24px; font-weight: bold; text-align: center; margin: 20px 0; padding: 10px; background: #000; color: #fff; }
-            .observation { text-align: center; font-size: 11px; color: #666; margin-top: 15px; padding: 8px; background: #f5f5f5; border-radius: 4px; }
-            .footer { text-align: center; border-top: 2px dashed #000; padding-top: 10px; margin-top: 20px; font-size: 11px; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <div class="name">${settings.parkingName || 'ESTACIONAMENTO'}</div>
-            ${settings.parkingAddress ? `<div class="address">${settings.parkingAddress}</div>` : ''}
-            ${settings.parkingPhone ? `<div class="address">Tel: ${settings.parkingPhone}</div>` : ''}
-            <p>COMPROVANTE DE SAÍDA</p>
-          </div>
-          <div class="plate">${exitedVehicle.plate}</div>
-          ${exitedVehicle.vehicleName ? `<div style="text-align: center; color: #666; margin-bottom: 10px;">${exitedVehicle.vehicleName}</div>` : ''}
-          <div class="info">
-            <span class="label">Entrada:</span>
-            <span class="value">${formatDateTime(exitedVehicle.entryTime)}</span>
-          </div>
-          <div class="info">
-            <span class="label">Saída:</span>
-            <span class="value">${formatDateTime(exitedVehicle.exitTime!)}</span>
-          </div>
-          <div class="info">
-            <span class="label">Permanência:</span>
-            <span class="value">${duration}</span>
-          </div>
-          <div class="total">TOTAL: ${formatCurrency(exitedVehicle.amountPaid || 0)}</div>
-          ${settings.ticketObservation ? `<div class="observation">${settings.ticketObservation}</div>` : ''}
-          <div class="footer">
-            <p>Obrigado pela preferência!</p>
-            <p>Volte sempre</p>
-          </div>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.print();
   };
 
   const handleClose = () => {

@@ -6,6 +6,7 @@ import { PlateInput } from './PlateInput';
 import { PlateDisplay } from './PlateDisplay';
 import { Vehicle, ParkingSettings } from '@/types/parking';
 import { formatDateTime } from '@/lib/parking-utils';
+import { printHtml, buildEntryTicketHtml } from '@/lib/print';
 import { LogIn, Printer, Check, Car } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -49,52 +50,19 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
 
   const handlePrint = () => {
     if (!confirmedVehicle) return;
-    
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Ticket de Entrada</title>
-          <style>
-            body { font-family: 'Courier New', monospace; padding: 20px; max-width: 300px; margin: 0 auto; }
-            .header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
-            .name { font-size: 16px; font-weight: bold; }
-            .address { font-size: 11px; color: #666; }
-            .plate { font-size: 32px; font-weight: bold; letter-spacing: 4px; text-align: center; margin: 20px 0; padding: 10px; border: 2px solid #000; }
-            .info { margin: 10px 0; }
-            .label { font-size: 12px; color: #666; }
-            .value { font-size: 14px; font-weight: bold; }
-            .observation { text-align: center; font-size: 11px; color: #666; margin-top: 15px; padding: 8px; background: #f5f5f5; border-radius: 4px; }
-            .footer { text-align: center; border-top: 2px dashed #000; padding-top: 10px; margin-top: 20px; font-size: 12px; }
-            .id { font-size: 10px; color: #999; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <div class="name">${settings.parkingName || 'ESTACIONAMENTO'}</div>
-            ${settings.parkingAddress ? `<div class="address">${settings.parkingAddress}</div>` : ''}
-            ${settings.parkingPhone ? `<div class="address">Tel: ${settings.parkingPhone}</div>` : ''}
-            <p>TICKET DE ENTRADA</p>
-          </div>
-          <div class="plate">${confirmedVehicle.plate}</div>
-          ${confirmedVehicle.vehicleName ? `<div style="text-align: center; color: #666; margin-bottom: 10px;">${confirmedVehicle.vehicleName}</div>` : ''}
-          <div class="info">
-            <div class="label">Data/Hora Entrada:</div>
-            <div class="value">${formatDateTime(confirmedVehicle.entryTime)}</div>
-          </div>
-          ${settings.ticketObservation ? `<div class="observation">${settings.ticketObservation}</div>` : ''}
-          <div class="footer">
-            <p>Guarde este ticket</p>
-            <p class="id">ID: ${confirmedVehicle.id.slice(0, 8)}</p>
-          </div>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.print();
+    printHtml(
+      buildEntryTicketHtml({
+        plate:             confirmedVehicle.plate,
+        vehicleName:       confirmedVehicle.vehicleName,
+        entryTime:         formatDateTime(confirmedVehicle.entryTime),
+        id:                confirmedVehicle.id,
+        parkingName:       settings.parkingName,
+        parkingAddress:    settings.parkingAddress,
+        parkingPhone:      settings.parkingPhone,
+        ticketObservation: settings.ticketObservation,
+      }),
+      settings.print,
+    );
   };
 
   const handleClose = () => {

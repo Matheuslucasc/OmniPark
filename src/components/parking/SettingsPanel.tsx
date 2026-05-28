@@ -1,13 +1,15 @@
-import { ParkingSettings, PricingSettings } from '@/types/parking';
+import { ParkingSettings, PricingSettings, PaperSize } from '@/types/parking';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { Save, Building, DollarSign, Clock, FileText } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Save, Building, DollarSign, Clock, FileText, Printer } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { formatCurrency } from '@/lib/parking-utils';
+import { printHtml, buildEntryTicketHtml } from '@/lib/print';
 import { TicketPreview } from './TicketPreview';
 
 interface SettingsPanelProps {
@@ -242,6 +244,91 @@ export function SettingsPanel({ settings, onUpdateSettings, onUpdatePricing }: S
               <li>• Máximo diário: <span className="font-medium">{formatCurrency(localSettings.pricing.dailyMaxPrice)}</span></li>
             </ul>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Printer Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Printer className="w-5 h-5" />
+            Impressora
+          </CardTitle>
+          <CardDescription>
+            Configure o formato do papel e o tamanho da fonte dos tickets
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Tamanho do papel</Label>
+              <Select
+                value={localSettings.print?.paperSize ?? 'thermal80'}
+                onValueChange={(v) =>
+                  setLocalSettings(s => ({ ...s, print: { ...s.print, paperSize: v as PaperSize } }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="thermal80">Bobina 80mm (padrão)</SelectItem>
+                  <SelectItem value="thermal58">Bobina 58mm</SelectItem>
+                  <SelectItem value="a4">A4 / Folha comum</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Tamanho da fonte (pt)</Label>
+              <Input
+                type="number"
+                min={8}
+                max={18}
+                value={localSettings.print?.fontSize ?? 12}
+                onChange={(e) =>
+                  setLocalSettings(s => ({ ...s, print: { ...s.print, fontSize: parseInt(e.target.value) || 12 } }))
+                }
+              />
+            </div>
+
+            <div className="space-y-2 md:col-span-2">
+              <Label>Nome da impressora (lembrete)</Label>
+              <Input
+                placeholder="Ex: EPSON TM-T20 na recepção"
+                value={localSettings.print?.printerName ?? ''}
+                onChange={(e) =>
+                  setLocalSettings(s => ({ ...s, print: { ...s.print, printerName: e.target.value } }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Apenas um lembrete para o operador. Para definir a impressora padrão, selecione-a
+                uma vez no diálogo de impressão do navegador — ele vai lembrar nas próximas vezes.
+              </p>
+            </div>
+          </div>
+
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={() =>
+              printHtml(
+                buildEntryTicketHtml({
+                  plate: 'ABC1D23',
+                  entryTime: new Date().toLocaleString('pt-BR'),
+                  id: 'teste-123',
+                  parkingName: localSettings.parkingName,
+                  parkingAddress: localSettings.parkingAddress,
+                  parkingPhone: localSettings.parkingPhone,
+                  ticketObservation: localSettings.ticketObservation,
+                }),
+                localSettings.print ?? { paperSize: 'thermal80', fontSize: 12, printerName: '' },
+              )
+            }
+          >
+            <Printer className="w-4 h-4 mr-2" />
+            Imprimir ticket de teste
+          </Button>
         </CardContent>
       </Card>
 

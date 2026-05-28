@@ -12,9 +12,16 @@ export function useParking() {
   const [localVehicles, setLocalVehicles] = useLocalStorage<Vehicle[]>(VEHICLES_KEY, []);
   const [localSettings, setLocalSettings] = useLocalStorage<ParkingSettings>(SETTINGS_KEY, DEFAULT_SETTINGS);
 
+  // Garante que settings antigos sem o campo print não quebrem
+  const mergedLocal: ParkingSettings = {
+    ...DEFAULT_SETTINGS,
+    ...localSettings,
+    print: { ...DEFAULT_SETTINGS.print, ...(localSettings.print ?? {}) },
+  };
+
   // Live state (mirrors DB or localStorage)
   const [vehicles, setVehicles] = useState<Vehicle[]>(localVehicles);
-  const [settings, setSettings] = useState<ParkingSettings>(localSettings);
+  const [settings, setSettings] = useState<ParkingSettings>(mergedLocal);
   const [isLoading, setIsLoading] = useState(hasDB());
 
   // ── Initial load from Supabase ──────────────────────────────────────────────

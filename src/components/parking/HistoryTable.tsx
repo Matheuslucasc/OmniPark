@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Vehicle, ParkingSettings } from '@/types/parking';
 import { formatDateTime, formatDuration, formatCurrency, formatPlate, formatDate } from '@/lib/parking-utils';
+import { printHtml, buildExitReceiptHtml } from '@/lib/print';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
@@ -55,54 +56,24 @@ export function HistoryTable({ getHistory, settings }: HistoryTableProps) {
   };
 
   const handlePrintReceipt = (vehicle: Vehicle) => {
-    const duration = vehicle.exitTime 
-      ? formatDuration(new Date(vehicle.entryTime), new Date(vehicle.exitTime))
-      : '-';
-    
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.write(`
-        <html>
-          <head>
-            <title>Comprovante - ${formatPlate(vehicle.plate)}</title>
-            <style>
-              body { font-family: monospace; padding: 20px; max-width: 300px; margin: 0 auto; }
-              .header { text-align: center; margin-bottom: 20px; }
-              .title { font-size: 18px; font-weight: bold; }
-              .divider { border-top: 1px dashed #000; margin: 10px 0; }
-              .row { display: flex; justify-content: space-between; margin: 5px 0; }
-              .plate { font-size: 24px; font-weight: bold; text-align: center; margin: 15px 0; letter-spacing: 2px; }
-              .vehicle-name { text-align: center; color: #666; margin-bottom: 10px; }
-              .total { font-size: 20px; font-weight: bold; text-align: center; margin: 15px 0; }
-              .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <div class="title">${settings.parkingName || 'Estacionamento'}</div>
-              ${settings.parkingAddress ? `<div>${settings.parkingAddress}</div>` : ''}
-              ${settings.parkingPhone ? `<div>Tel: ${settings.parkingPhone}</div>` : ''}
-            </div>
-            <div class="divider"></div>
-            <div class="plate">${formatPlate(vehicle.plate)}</div>
-            ${vehicle.vehicleName ? `<div class="vehicle-name">${vehicle.vehicleName}</div>` : ''}
-            <div class="divider"></div>
-            <div class="row"><span>Entrada:</span><span>${formatDateTime(vehicle.entryTime)}</span></div>
-            ${vehicle.exitTime ? `<div class="row"><span>Saída:</span><span>${formatDateTime(vehicle.exitTime)}</span></div>` : ''}
-            <div class="row"><span>Permanência:</span><span>${duration}</span></div>
-            <div class="divider"></div>
-            <div class="total">Total: ${formatCurrency(vehicle.amountPaid || 0)}</div>
-            <div class="divider"></div>
-            <div class="footer">
-              <div>Obrigado pela preferência!</div>
-              <div style="margin-top: 5px;">2ª Via - ${formatDateTime(new Date())}</div>
-            </div>
-          </body>
-        </html>
-      `);
-      printWindow.document.close();
-      printWindow.print();
-    }
+    if (!vehicle.exitTime) return;
+    const duration = formatDuration(new Date(vehicle.entryTime), new Date(vehicle.exitTime));
+    printHtml(
+      buildExitReceiptHtml({
+        plate:             formatPlate(vehicle.plate),
+        vehicleName:       vehicle.vehicleName,
+        entryTime:         formatDateTime(vehicle.entryTime),
+        exitTime:          formatDateTime(vehicle.exitTime),
+        duration,
+        amountPaid:        vehicle.amountPaid ?? 0,
+        id:                vehicle.id,
+        parkingName:       settings.parkingName,
+        parkingAddress:    settings.parkingAddress,
+        parkingPhone:      settings.parkingPhone,
+        ticketObservation: settings.ticketObservation,
+      }),
+      settings.print,
+    );
   };
 
   return (
