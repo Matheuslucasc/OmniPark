@@ -34,7 +34,7 @@ export function ExitDialog({
   const [exitedVehicle, setExitedVehicle] = useState<Vehicle | null>(null);
   const [selectedModule, setSelectedModule] = useState<PriceModule | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [tick, setTick] = useState(0);
+  const [, setTick] = useState(0); // só força re-render para atualizar duração/preço
   const { modules } = usePriceModules();
 
   // Tick a cada 30s para atualizar duração e preço

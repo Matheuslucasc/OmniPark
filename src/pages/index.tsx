@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useParking } from '@/hooks/useParking';
 import { Sidebar } from '@/components/parking/Sidebar';
@@ -7,22 +7,34 @@ import { PlateDisplay } from '@/components/parking/PlateDisplay';
 import { VehicleCard } from '@/components/parking/VehicleCard';
 import { EntryDialog } from '@/components/parking/EntryDialog';
 import { ExitDialog } from '@/components/parking/ExitDialog';
-import { HistoryTable } from '@/components/parking/HistoryTable';
-import { SettingsPanel } from '@/components/parking/SettingsPanel';
-import { ReportsPanel } from '@/components/parking/ReportsPanel';
-import { CameraPanel } from '@/components/parking/CameraPanel';
-import { PriceModulesPanel } from '@/components/parking/PriceModulesPanel';
 import { PlateInput } from '@/components/parking/PlateInput';
+
+// Telas secundárias carregadas sob demanda (code-splitting) — só baixam
+// quando o operador abre a aba, deixando o dashboard inicial mais leve.
+const HistoryTable = lazy(() =>
+  import('@/components/parking/HistoryTable').then(m => ({ default: m.HistoryTable })));
+const SettingsPanel = lazy(() =>
+  import('@/components/parking/SettingsPanel').then(m => ({ default: m.SettingsPanel })));
+const ReportsPanel = lazy(() =>
+  import('@/components/parking/ReportsPanel').then(m => ({ default: m.ReportsPanel })));
+const CameraPanel = lazy(() =>
+  import('@/components/parking/CameraPanel').then(m => ({ default: m.CameraPanel })));
+const PriceModulesPanel = lazy(() =>
+  import('@/components/parking/PriceModulesPanel').then(m => ({ default: m.PriceModulesPanel })));
 import { Button } from '@/components/ui/button';
 import { formatCurrency, formatPlate, formatTime } from '@/lib/parking-utils';
-import { Car, DollarSign, LogIn, LogOut, ParkingCircle, Menu, Clock } from 'lucide-react';
+import { Car, DollarSign, LogIn, LogOut, ParkingCircle, Menu, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Vehicle } from '@/types/parking';
 
 interface PlateRead {
-  plate: string;
+  id: string;
+  plate: string;       // placa digitada pelo operador (começa vazia no modo só-foto)
   imageUrl?: string;
   at: Date;
 }
+
+// Quantas leituras recentes ficam disponíveis no seletor (apenas em memória)
+const MAX_RECENT_READS = 3;
 
 const pageTitles: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -41,41 +53,71 @@ const Index = () => {
   const [entryOpen, setEntryOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
-  const [lastReadPlate, setLastReadPlate] = useState('');
-  const [plateImageUrl, setPlateImageUrl] = useState<string | undefined>();
+  // Leituras recentes (foto + placa) ficam só em memória — leves e descartáveis.
+  // selectedReadIndex aponta qual leitura está em foco no card (0 = mais recente).
   const [recentPlates, setRecentPlates] = useState<PlateRead[]>([]);
+  const [selectedReadIndex, setSelectedReadIndex] = useState(0);
 
+  const selectedRead: PlateRead | undefined = recentPlates[selectedReadIndex];
+  const lastReadPlate = selectedRead?.plate ?? '';
+  const plateImageUrl = selectedRead?.imageUrl;
+
+  // Adiciona uma leitura nova (vinda da câmera) ao topo do seletor.
   const pushPlateRead = (plate: string, imageUrl?: string) => {
     const normalized = plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (normalized.length < 6) return;
+    // Precisa de pelo menos uma placa válida OU uma foto.
+    if (normalized.length < 6 && !imageUrl) return;
     setRecentPlates(prev => {
-      // não duplica se a placa mais recente for a mesma
-      if (prev[0]?.plate === normalized) return prev;
-      return [{ plate: normalized, imageUrl, at: new Date() }, ...prev].slice(0, 2);
+      // Não duplica se a leitura mais recente já é a mesma foto/placa.
+      const newest = prev[0];
+      if (newest && newest.imageUrl === imageUrl && newest.plate === normalized) return prev;
+      const entry: PlateRead = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        plate: normalized,
+        imageUrl,
+        at: new Date(),
+      };
+      return [entry, ...prev].slice(0, MAX_RECENT_READS);
+    });
+    setSelectedReadIndex(0); // foca a leitura nova, mas o operador pode voltar
+  };
+
+  // Atualiza a placa digitada da leitura em foco (ou cria uma manual se não houver).
+  const setLastReadPlate = (val: string) => {
+    setRecentPlates(prev => {
+      if (prev.length === 0) {
+        return [{
+          id: `${Date.now()}-manual`,
+          plate: val,
+          imageUrl: undefined,
+          at: new Date(),
+        }];
+      }
+      return prev.map((r, i) => (i === selectedReadIndex ? { ...r, plate: val } : r));
     });
   };
 
   // ── Supabase Realtime — recebe placas do Python em tempo real ────────────
   useEffect(() => {
     if (!supabase) return;
+    const client = supabase; // captura para o closure de cleanup (TS narrowing)
 
-    const channel = supabase
+    const channel = client
       .channel('plate_reads_live')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'plate_reads' },
         (payload) => {
-          const row = payload.new as { plate: string; image_url?: string };
-          if (!row.plate) return;
-          setLastReadPlate(row.plate);
-          setPlateImageUrl(row.image_url ?? undefined);
-          pushPlateRead(row.plate, row.image_url ?? undefined);
+          const row = payload.new as { plate?: string; image_url?: string };
+          // Fluxo "foto + digitação manual": a câmera pode mandar só a foto.
+          // Cada leitura entra no seletor; o operador navega e digita a placa.
+          if (!row.plate && !row.image_url) return;
+          pushPlateRead(row.plate ?? '', row.image_url ?? undefined);
         }
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { client.removeChannel(channel); };
   }, []);
 
   const {
@@ -145,11 +187,11 @@ const Index = () => {
 
             {/* Camera read area */}
             <div className={`p-4 sm:p-6 bg-card rounded-xl border-2 space-y-4 transition-colors ${
-              lastReadPlate ? 'border-primary/60 bg-primary/5' : 'border-border'
+              selectedRead ? 'border-primary/60 bg-primary/5' : 'border-border'
             }`}>
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-medium text-muted-foreground">Leitura de Placa (Câmera)</h3>
-                {lastReadPlate && (
+                {selectedRead && selectedReadIndex === 0 && (
                   <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium animate-pulse">
                     Nova leitura
                   </span>
@@ -157,7 +199,7 @@ const Index = () => {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Foto da placa */}
+                {/* Foto da placa + seletor das últimas leituras */}
                 <div className="relative aspect-video bg-muted rounded-lg overflow-hidden border-2 border-dashed border-border flex items-center justify-center">
                   {plateImageUrl ? (
                     <img
@@ -172,6 +214,34 @@ const Index = () => {
                       <p className="text-xs mt-1 opacity-70">O Python enviará a foto aqui</p>
                     </div>
                   )}
+
+                  {/* Navegação entre as últimas leituras (só aparece com 2+) */}
+                  {recentPlates.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        aria-label="Foto mais recente"
+                        disabled={selectedReadIndex === 0}
+                        onClick={() => setSelectedReadIndex(i => Math.max(0, i - 1))}
+                        className="absolute left-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/55 text-white hover:bg-black/75 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Foto anterior"
+                        disabled={selectedReadIndex >= recentPlates.length - 1}
+                        onClick={() => setSelectedReadIndex(i => Math.min(recentPlates.length - 1, i + 1))}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/55 text-white hover:bg-black/75 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                      <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/55 text-white text-[11px] font-medium">
+                        {selectedReadIndex === 0 ? 'Mais recente' : `${selectedReadIndex + 1}ª anterior`}
+                        <span className="opacity-70">· {selectedReadIndex + 1}/{recentPlates.length}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Placa atual + entrada */}
@@ -181,35 +251,42 @@ const Index = () => {
                     <label className="text-xs text-muted-foreground block mb-1">Entrada manual / correção:</label>
                     <PlateInput
                       value={lastReadPlate}
-                      onChange={(val) => {
-                        setLastReadPlate(val);
-                        pushPlateRead(val, plateImageUrl);
-                      }}
+                      onChange={setLastReadPlate}
                       placeholder="Digite a placa…"
                     />
                   </div>
-                  {lastReadPlate && (
+                  {selectedRead && (
                     <Button
                       size="lg"
                       className="w-full text-base font-bold shadow-md"
                       onClick={() => setEntryOpen(true)}
                     >
                       <LogIn className="w-5 h-5 mr-2" />
-                      Dar Entrada — {lastReadPlate}
+                      {lastReadPlate ? `Dar Entrada — ${lastReadPlate}` : 'Dar Entrada (digitar placa)'}
                     </Button>
                   )}
                 </div>
               </div>
 
-              {/* Últimas 2 placas lidas */}
+              {/* Seletor das últimas leituras (em memória) */}
               {recentPlates.length > 0 && (
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-2">Últimas placas lidas:</p>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">
+                    Últimas leituras (clique para selecionar):
+                  </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {recentPlates.map((read, i) => (
                       <div
-                        key={i}
-                        className="flex items-center gap-3 p-3 bg-muted/60 rounded-lg border border-border hover:border-primary/40 transition-colors"
+                        key={read.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedReadIndex(i)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedReadIndex(i); }}
+                        className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                          i === selectedReadIndex
+                            ? 'bg-primary/10 border-primary'
+                            : 'bg-muted/60 border-border hover:border-primary/40'
+                        }`}
                       >
                         {/* Miniatura da imagem ou ícone */}
                         <div className="w-16 h-10 rounded overflow-hidden bg-background border border-border shrink-0 flex items-center justify-center">
@@ -222,8 +299,10 @@ const Index = () => {
 
                         {/* Placa + horário */}
                         <div className="flex-1 min-w-0">
-                          <p className="font-mono font-bold text-base tracking-widest truncate">
-                            {formatPlate(read.plate)}
+                          <p className={`font-mono font-bold text-base tracking-widest truncate ${
+                            read.plate ? '' : 'text-muted-foreground italic font-normal text-sm tracking-normal'
+                          }`}>
+                            {read.plate ? formatPlate(read.plate) : 'Aguardando placa…'}
                           </p>
                           <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                             <Clock className="w-3 h-3" />
@@ -236,8 +315,9 @@ const Index = () => {
                           size="sm"
                           variant="outline"
                           className="shrink-0"
-                          onClick={() => {
-                            setLastReadPlate(read.plate);
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedReadIndex(i);
                             setEntryOpen(true);
                           }}
                         >
@@ -360,7 +440,16 @@ const Index = () => {
               Carregando dados do banco…
             </div>
           ) : (
-            renderContent()
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center py-24 text-muted-foreground gap-3">
+                  <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  Carregando…
+                </div>
+              }
+            >
+              {renderContent()}
+            </Suspense>
           )}
         </main>
       </div>

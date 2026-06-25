@@ -92,8 +92,14 @@ export default async function handler(req: Request): Promise<Response> {
     return json({ error: 'JSON inválido' }, 400);
   }
 
-  const plate = (body.plate ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (plate.length < 6) return json({ error: 'Placa inválida' }, 400);
+  // Fluxo "foto + digitação manual": a câmera pode enviar só a foto, sem texto
+  // de placa. O operador digita a placa no dashboard. Por isso aceitamos uma
+  // leitura quando houver uma placa válida (>= 6) OU uma foto.
+  const rawPlate = (body.plate ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const plate = rawPlate.length >= 6 ? rawPlate : '';
+  if (!plate && !body.image_base64) {
+    return json({ error: 'Envie uma placa válida (>= 6 caracteres) ou uma foto' }, 400);
+  }
 
   // ── Configuração Supabase ─────────────────────────────────────────────────
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
@@ -103,7 +109,7 @@ export default async function handler(req: Request): Promise<Response> {
   // ── Upload da imagem (se enviada) ─────────────────────────────────────────
   let imageUrl: string | null = null;
   if (body.image_base64) {
-    imageUrl = await uploadImagem(supabaseUrl, supabaseKey, plate, body.image_base64);
+    imageUrl = await uploadImagem(supabaseUrl, supabaseKey, plate || 'sem-placa', body.image_base64);
   }
 
   // ── Grava em plate_reads ──────────────────────────────────────────────────

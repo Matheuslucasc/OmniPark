@@ -43,9 +43,14 @@ export function printHtml(html: string, printSettings: PrintSettings): void {
 <body>${html}</body>
 </html>`;
 
-  // Usa iframe invisível para não abrir nova aba
+  // Usa iframe invisível para não abrir nova aba.
+  // IMPORTANTE: o iframe precisa ter a LARGURA REAL do papel. Se ficar com 1px,
+  // o Chrome renderiza o conteúdo espremido e a impressora recebe um job em
+  // branco (o papel é cortado mas nada é escrito). Mantemos visualmente oculto
+  // jogando para fora da tela, mas com largura/altura reais.
   const iframe = document.createElement('iframe');
-  iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:none;';
+  iframe.style.cssText =
+    'position:fixed;right:0;bottom:0;width:80mm;height:200mm;border:0;opacity:0;pointer-events:none;z-index:-1;';
   document.body.appendChild(iframe);
 
   const doc = iframe.contentDocument ?? iframe.contentWindow?.document;
@@ -55,15 +60,29 @@ export function printHtml(html: string, printSettings: PrintSettings): void {
   doc.write(fullHtml);
   doc.close();
 
-  // Aguarda recursos carregarem antes de imprimir
+  const win = iframe.contentWindow;
+  let removed = false;
+  const cleanup = () => {
+    if (removed) return;
+    removed = true;
+    setTimeout(() => { try { document.body.removeChild(iframe); } catch { /* já removido */ } }, 500);
+  };
+
   const doprint = () => {
-    try {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-    } finally {
-      // Remove o iframe após um delay para o diálogo ter tempo de abrir
-      setTimeout(() => { document.body.removeChild(iframe); }, 2000);
-    }
+    // Espera o layout/fontes estabilizarem antes de imprimir, senão o job
+    // pode sair em branco.
+    win?.requestAnimationFrame(() => {
+      setTimeout(() => {
+        try {
+          win.onafterprint = cleanup;
+          win.focus();
+          win.print();
+        } finally {
+          // Fallback caso onafterprint não dispare (alguns drivers/navegadores)
+          setTimeout(cleanup, 3000);
+        }
+      }, 150);
+    });
   };
 
   if (doc.readyState === 'complete') {

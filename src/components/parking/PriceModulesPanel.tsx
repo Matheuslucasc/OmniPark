@@ -4,20 +4,11 @@ import { usePriceModules } from '@/hooks/usePriceModules';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/parking-utils';
 import { Plus, Trash2, Edit2, Save, X, Tag } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-
-const emptyPricing = (): PricingSettings => ({
-  toleranceMinutes: 15,
-  firstHourPrice: 10,
-  additionalHourPrice: 5,
-  dailyMaxPrice: 50,
-  roundUpMinutes: 10,
-});
 
 export function PriceModulesPanel({ defaultPricing }: { defaultPricing: PricingSettings }) {
   const { modules, addModule, saveModule, removeModule } = usePriceModules();

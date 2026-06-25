@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { PriceModule, PricingSettings } from '@/types/parking';
+import { PriceModule } from '@/types/parking';
 import { useLocalStorage } from './useLocalStorage';
 import { hasDB } from '@/lib/supabase';
 import { dbFetchModules, dbUpsertModule, dbDeleteModule } from '@/lib/db';

@@ -108,6 +108,8 @@ export function useParking() {
     const newVehicle: Vehicle = { id: generateId(), ...draft };
     syncVehicleLocally([newVehicle, ...vehicles]);
     return newVehicle;
+  // syncVehicleLocally é estável; deps intencionalmente limitadas a `vehicles`.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vehicles]);
 
   const registerExit = useCallback(async (vehicleId: string, customPricing?: typeof settings.pricing): Promise<Vehicle | null> => {
@@ -135,6 +137,8 @@ export function useParking() {
     };
     syncVehicleLocally(vehicles.map(v => v.id === vehicleId ? exited : v));
     return exited;
+  // syncVehicleLocally é estável; deps intencionalmente limitadas.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vehicles, settings.pricing]);
 
   const findVehicleByPlate = useCallback((plate: string): Vehicle | undefined => {

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Vehicle, ParkingSettings } from '@/types/parking';
-import { formatDateTime, formatDuration, formatCurrency, formatPlate, formatDate } from '@/lib/parking-utils';
+import { formatDateTime, formatDuration, formatCurrency, formatPlate } from '@/lib/parking-utils';
 import { printHtml, buildExitReceiptHtml } from '@/lib/print';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';

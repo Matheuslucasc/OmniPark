@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +26,18 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
   const { toast } = useToast();
 
   const [submitting, setSubmitting] = useState(false);
+
+  // Re-semeia a placa ao abrir o diálogo (o componente fica sempre montado).
+  // Depende só de `open` de propósito: se uma nova leitura chegar enquanto o
+  // operador digita aqui, não sobrescrevemos o que ele já digitou.
+  useEffect(() => {
+    if (open) {
+      setPlate(lastReadPlate || '');
+      setVehicleName('');
+      setConfirmedVehicle(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const handleConfirm = async () => {
     if (plate.length < 6) {

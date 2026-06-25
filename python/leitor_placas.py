@@ -34,6 +34,7 @@ CAMERA_ID     = int(os.getenv("CAMERA_ID",       "1"))
 YOLO_MODEL    = os.getenv("YOLO_MODEL",          "best.pt")
 CONFIANCA_MIN = float(os.getenv("CONFIANCA_MIN", "0.5"))
 INTERVALO_SEG = float(os.getenv("INTERVALO_SEG", "2.0"))
+COOLDOWN_SEM_PLACA = float(os.getenv("COOLDOWN_SEM_PLACA", "8.0"))  # modo só-foto: evita reenviar o mesmo carro
 MOSTRAR_VIDEO = os.getenv("MOSTRAR_VIDEO",       "true").lower() == "true"
 MARGEM_PX     = int(os.getenv("MARGEM_PX",       "20"))  # margem ao redor da placa na foto
 
@@ -207,9 +208,16 @@ def main():
             if MOSTRAR_VIDEO:
                 cv2.imshow("Placa detectada", recorte_final)
 
-            # Evita enviar a mesma placa repetida em menos de 5s
-            nova_placa = melhor_texto or f"LIDA-{int(agora)}"
-            if nova_placa == ultima_placa and agora - ultimo_envio < 5:
+            # Evita reenviar repetido. Com OCR: dedup pela placa (5s).
+            # Sem OCR (modo só-foto): dedup por uma janela maior, senão o mesmo
+            # carro parado seria enviado a cada INTERVALO_SEG.
+            if melhor_texto:
+                nova_placa = melhor_texto
+                janela = 5.0
+            else:
+                nova_placa = "SEM-PLACA"
+                janela = COOLDOWN_SEM_PLACA
+            if nova_placa == ultima_placa and agora - ultimo_envio < janela:
                 continue
 
             print(f"\n[Detectada] placa={melhor_texto or '?'} conf={melhor_confianca:.0%}")

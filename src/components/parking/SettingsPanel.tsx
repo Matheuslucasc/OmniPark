@@ -18,7 +18,7 @@ interface SettingsPanelProps {
   onUpdatePricing: (pricing: Partial<PricingSettings>) => void;
 }
 
-export function SettingsPanel({ settings, onUpdateSettings, onUpdatePricing }: SettingsPanelProps) {
+export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps) {
   const [localSettings, setLocalSettings] = useState(settings);
   const { toast } = useToast();
 

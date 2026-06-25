@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Vehicle } from '@/types/parking';
-import { formatCurrency, formatDate, isToday } from '@/lib/parking-utils';
+import { formatCurrency, isToday } from '@/lib/parking-utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BarChart3, TrendingUp, Car, DollarSign, Calendar } from 'lucide-react';
 
@@ -171,7 +171,6 @@ export function ReportsPanel({ vehicles }: ReportsPanelProps) {
                   <div className="text-xs font-medium">{formatCurrency(day.revenue)}</div>
                   <div className="w-full h-48 bg-secondary rounded-t-lg overflow-hidden flex items-end">
                     <div
-                      // eslint-disable-next-line react/forbid-component-props
                       style={{ transform: `scaleY(${height / 100})` }}
                       className={`w-full h-full origin-bottom transition-all duration-500 rounded-t-lg ${
                         isCurrentDay ? 'bg-primary' : 'bg-primary/60'

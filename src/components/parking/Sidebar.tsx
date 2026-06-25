@@ -83,7 +83,6 @@ export function Sidebar({ activeTab, onTabChange, occupiedSpots, totalSpots, mob
               occupancyPercent > 80 ? 'bg-destructive' :
               occupancyPercent > 50 ? 'bg-warning' : 'bg-accent'
             )}
-            // eslint-disable-next-line react/forbid-component-props
             style={{ transform: `scaleX(${occupancyPercent / 100})` }}
           />
         </div>
