@@ -2,7 +2,4 @@ ultralytics>=8.0.0
 opencv-python>=4.8.0
 requests>=2.31.0
 python-dotenv>=1.0.0
-
-# Opcional — escolha um para extrair o texto da placa:
-# easyocr>=1.7.0
-# pytesseract>=0.3.10
+fast-plate-ocr[onnx]>=1.0.0

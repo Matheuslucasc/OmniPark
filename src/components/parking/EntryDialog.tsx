@@ -1,13 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PlateInput } from './PlateInput';
 import { PlateDisplay } from './PlateDisplay';
 import { Vehicle, ParkingSettings } from '@/types/parking';
-import { formatDateTime } from '@/lib/parking-utils';
+import { formatDateTime, isValidPlate } from '@/lib/parking-utils';
 import { printHtml, buildEntryTicketHtml } from '@/lib/print';
-import { LogIn, Printer, Check, Car } from 'lucide-react';
+import { LogIn, LogOut, Printer, Check, Car, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface EntryDialogProps {
@@ -17,23 +17,42 @@ interface EntryDialogProps {
   lastReadPlate?: string;
   plateImageUrl?: string;
   settings: ParkingSettings;
+  findVehicleByPlate?: (plate: string) => Vehicle | undefined;
+  onRegisterExit?: (vehicle: Vehicle) => void;
 }
 
-export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plateImageUrl, settings }: EntryDialogProps) {
+export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plateImageUrl, settings, findVehicleByPlate, onRegisterExit }: EntryDialogProps) {
   const [plate, setPlate] = useState(lastReadPlate || '');
   const [vehicleName, setVehicleName] = useState('');
   const [confirmedVehicle, setConfirmedVehicle] = useState<Vehicle | null>(null);
+  const [alreadyParked, setAlreadyParked] = useState<Vehicle | null>(null);
   const { toast } = useToast();
 
   const [submitting, setSubmitting] = useState(false);
 
+  // Ao abrir, já entra com a última placa lida pela câmera: o operador só
+  // confere e confirma (ou corrige digitando).
+  useEffect(() => {
+    if (open && lastReadPlate) {
+      setPlate(lastReadPlate);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   const handleConfirm = async () => {
-    if (plate.length < 6) {
+    if (!isValidPlate(plate)) {
       toast({
         title: "Placa inválida",
-        description: "A placa deve ter pelo menos 6 caracteres.",
+        description: "A placa deve ter 7 caracteres no formato ABC1234 ou ABC1D23.",
         variant: "destructive",
       });
+      return;
+    }
+
+    // Veículo com bilhete ativo não pode entrar de novo: oferece a saída.
+    const estacionado = findVehicleByPlate?.(plate);
+    if (estacionado) {
+      setAlreadyParked(estacionado);
       return;
     }
 
@@ -73,10 +92,18 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
     );
   };
 
+  const handleRegisterExit = () => {
+    if (!alreadyParked) return;
+    const veiculo = alreadyParked;
+    handleClose();
+    onRegisterExit?.(veiculo);
+  };
+
   const handleClose = () => {
     setPlate('');
     setVehicleName('');
     setConfirmedVehicle(null);
+    setAlreadyParked(null);
     onOpenChange(false);
   };
 
@@ -90,7 +117,33 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
           </DialogTitle>
         </DialogHeader>
 
-        {!confirmedVehicle ? (
+        {alreadyParked ? (
+          <div className="space-y-4 text-center">
+            <div className="p-4 bg-amber-500/10 rounded-xl border-2 border-amber-500/30">
+              <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto mb-2" />
+              <p className="font-medium">Veículo já está estacionado!</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Bilhete ativo desde {formatDateTime(alreadyParked.entryTime)}
+              </p>
+            </div>
+
+            <PlateDisplay plate={alreadyParked.plate} size="lg" variant="highlight" />
+
+            <p className="text-sm text-muted-foreground">
+              Deseja registrar a <strong>saída</strong> deste veículo?
+            </p>
+
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setAlreadyParked(null)}>
+                Voltar
+              </Button>
+              <Button className="flex-1" onClick={handleRegisterExit}>
+                <LogOut className="w-4 h-4 mr-2" />
+                Registrar Saída
+              </Button>
+            </div>
+          </div>
+        ) : !confirmedVehicle ? (
           <div className="space-y-4">
             {plateImageUrl && (
               <div className="rounded-lg overflow-hidden border-2 border-border bg-black/5">
@@ -135,7 +188,7 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
               </Button>
             )}
 
-            <Button className="w-full" onClick={handleConfirm} disabled={plate.length < 6 || submitting}>
+            <Button className="w-full" onClick={handleConfirm} disabled={plate.length < 7 || submitting}>
               <LogIn className="w-4 h-4 mr-2" />
               Confirmar Entrada
             </Button>

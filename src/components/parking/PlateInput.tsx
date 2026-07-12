@@ -35,7 +35,7 @@ export function PlateInput({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && onSubmit && value.length >= 6) {
+    if (e.key === 'Enter' && onSubmit && value.length >= 7) {
       onSubmit();
     }
   };

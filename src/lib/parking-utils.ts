@@ -78,6 +78,11 @@ export function formatCurrency(value: number): string {
   }).format(value);
 }
 
+export function isValidPlate(plate: string): boolean {
+  // Exige os 7 caracteres: formato antigo (ABC1234) ou Mercosul (ABC1D23)
+  return /^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(plate.toUpperCase());
+}
+
 export function formatPlate(plate: string): string {
   // Handle both old (AAA-1234) and Mercosul (AAA1A23) formats
   const clean = plate.toUpperCase().replace(/[^A-Z0-9]/g, '');

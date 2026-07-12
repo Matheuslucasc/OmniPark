@@ -4,3 +4,6 @@ dist
 .env.local
 .env.production
 
+python/venv/
+python/__pycache__/
+python/.env

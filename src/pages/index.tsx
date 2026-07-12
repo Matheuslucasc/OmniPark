@@ -278,7 +278,10 @@ const Index = () => {
               onOpenChange={() => setActiveTab('dashboard')}
               onConfirm={registerEntry}
               lastReadPlate={lastReadPlate}
+              plateImageUrl={plateImageUrl}
               settings={settings}
+              findVehicleByPlate={findVehicleByPlate}
+              onRegisterExit={handleVehicleExit}
             />
           </div>
         );
@@ -372,6 +375,8 @@ const Index = () => {
         lastReadPlate={lastReadPlate}
         plateImageUrl={plateImageUrl}
         settings={settings}
+        findVehicleByPlate={findVehicleByPlate}
+        onRegisterExit={handleVehicleExit}
       />
       <ExitDialog
         open={exitOpen}
