@@ -29,13 +29,20 @@ um script Python instalado pelo `instalar.bat`.
 4. **Editar o arquivo `.env`** (Bloco de Notas):
    - `OMNIPARK_API_URL` → endereço do site, ex.: `https://omnipark.vercel.app/api/plate-read`
    - `OMNIPARK_API_SECRET` → a mesma chave configurada como `PLATE_API_SECRET` no Vercel
-   - `CAMERA_URL` → a câmera:
-     - Intelbras/Dahua: `rtsp://usuario:senha@IP:554/cam/realmonitor?channel=1&subtype=0`
-     - Hikvision: `rtsp://usuario:senha@IP:554/Streaming/Channels/101`
-     - Webcam USB: `0`
-     - Vídeo gravado (teste): `C:\caminho\video.mp4`
+   - `CAMERA_URL` → **deixe vazio** para usar a câmera cadastrada no site (recomendado).
+     Só preencha para forçar uma fonte fixa (ex.: `0` para webcam ou o caminho de
+     um vídeo para teste).
 
-5. **Rodar `iniciar_leitor.bat`**. A janela mostra as leituras
+5. **Cadastrar a câmera pelo site**: abra o site → aba **Câmeras** → **Adicionar** →
+   preencha IP, porta, usuário e senha da câmera → deixe-a como **ativa**.
+   O leitor busca essa câmera automaticamente. Para trocar de câmera depois,
+   basta marcar outra como ativa no site — **não precisa mexer no computador**.
+
+   Campos típicos por fabricante:
+   - Intelbras/Dahua: protocolo `rtsp`, porta `554`, caminho `/cam/realmonitor?channel=1&subtype=0`
+   - Hikvision: protocolo `rtsp`, porta `554`, caminho `/Streaming/Channels/101`
+
+6. **Rodar `iniciar_leitor.bat`**. A janela mostra as leituras
    (`[CONFIRMADA] ABC-1234`) e o site preenche a placa sozinho.
 
 ## Iniciar junto com o Windows (recomendado)
@@ -62,7 +69,11 @@ de vídeo (gasta menos e não atrapalha o operador).
   internet do computador.
 - **"Erro API 401"** — a `OMNIPARK_API_SECRET` do `.env` não bate com a
   `PLATE_API_SECRET` do Vercel.
+- **"Nenhuma câmera ativa no site ainda"** — cadastre e ative uma câmera na
+  aba Câmeras do site (passo 5), ou preencha `CAMERA_URL` no `.env`.
 - **"Não abriu a câmera"** — teste a URL RTSP no VLC (Mídia → Abrir
   transmissão de rede); confira usuário/senha e se a câmera está na rede.
+- **Erro ao salvar câmera no site** — se aparecer erro de permissão, rode no
+  SQL Editor do Supabase: `ALTER TABLE camera_settings DISABLE ROW LEVEL SECURITY;`
 - **Leitura ruim à noite** — ilumine a entrada ou use câmera com IR; a câmera
   deve ver a placa de frente.

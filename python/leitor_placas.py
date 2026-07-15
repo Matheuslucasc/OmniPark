@@ -35,8 +35,14 @@ load_dotenv(Path(__file__).parent / ".env")
 # ── Configurações ──────────────────────────────────────────────────────────────
 API_URL       = os.getenv("OMNIPARK_API_URL",    "https://seu-app.vercel.app/api/plate-read")
 API_SECRET    = os.getenv("OMNIPARK_API_SECRET", "")
-CAMERA_URL    = os.getenv("CAMERA_URL",          "0")   # "0"=webcam, URL=câmera IP, caminho=vídeo
-CAMERA_ID     = int(os.getenv("CAMERA_ID",       "1"))
+# Câmera fixa (opcional). Vazio = usa a câmera ATIVA definida na aba Câmeras do
+# site (buscada pela API). Preencha só para forçar um valor: "0"=webcam,
+# uma URL RTSP, ou o caminho de um vídeo gravado (para testes).
+CAMERA_URL    = os.getenv("CAMERA_URL", "").strip()
+# Endpoint que devolve a câmera ativa; derivado da API_URL trocando o caminho.
+CAMERA_API_URL = API_URL.replace("/plate-read", "/active-camera")
+# De quanto em quanto tempo checar se a câmera ativa mudou no site (segundos).
+CHECAR_CAMERA_S = float(os.getenv("CHECAR_CAMERA_S", "15"))
 YOLO_MODEL    = os.getenv("YOLO_MODEL",          str(Path(__file__).parent / "license_plate_detector.pt"))
 CONFIANCA_MIN = float(os.getenv("CONFIANCA_MIN", "0.35"))  # confiança mínima do YOLO
 CONF_OCR_MIN  = float(os.getenv("CONF_OCR_MIN",  "0.70"))  # confiança mínima do OCR
@@ -98,7 +104,8 @@ def ler_placa(ocr, recorte) -> tuple[str | None, float]:
 
 # ── Envio para a API ───────────────────────────────────────────────────────────
 
-def enviar_para_sistema(placa: str, confianca: float, foto_b64: str) -> bool:
+def enviar_para_sistema(placa: str, confianca: float, foto_b64: str,
+                        camera_id: int | None = None) -> bool:
     headers = {"Content-Type": "application/json"}
     if API_SECRET:
         headers["Authorization"] = f"Bearer {API_SECRET}"
@@ -106,9 +113,10 @@ def enviar_para_sistema(placa: str, confianca: float, foto_b64: str) -> bool:
     payload = {
         "plate":        placa,
         "confidence":   round(confianca, 4),
-        "camera_id":    CAMERA_ID,
         "image_base64": foto_b64,
     }
+    if camera_id is not None:
+        payload["camera_id"] = camera_id
     try:
         resp = requests.post(API_URL, json=payload, headers=headers, timeout=10)
         if resp.status_code == 200:
@@ -124,7 +132,45 @@ def enviar_para_sistema(placa: str, confianca: float, foto_b64: str) -> bool:
     return False
 
 
-# ── Loop principal ─────────────────────────────────────────────────────────────
+# ── Fonte da câmera ─────────────────────────────────────────────────────────────
+
+def obter_camera_ativa() -> tuple[str, int | None, str] | None:
+    """Consulta a API e devolve (stream_url, camera_id, nome) da câmera ativa,
+    ou None se não houver câmera ativa ou a API estiver fora do ar."""
+    headers = {}
+    if API_SECRET:
+        headers["Authorization"] = f"Bearer {API_SECRET}"
+    try:
+        resp = requests.get(CAMERA_API_URL, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            print(f"  ✗ /active-camera retornou {resp.status_code}: {resp.text[:120]}")
+            return None
+        cam = resp.json()
+        if not cam:
+            return None
+        return cam["stream_url"], cam.get("id"), cam.get("name", "câmera")
+    except requests.exceptions.RequestException:
+        print(f"  ✗ Sem conexão com {CAMERA_API_URL}")
+        return None
+
+
+def resolver_fonte() -> tuple[str, int | None, str]:
+    """Decide de onde capturar. Fica tentando até conseguir uma fonte válida.
+
+    - Se CAMERA_URL está preenchido no .env, usa esse valor fixo (id não
+      vinculado). Útil para testar com webcam ("0") ou vídeo gravado.
+    - Senão, usa a câmera ATIVA definida na aba Câmeras do site.
+    """
+    if CAMERA_URL:
+        return CAMERA_URL, None, "fixa (.env)"
+    while True:
+        ativa = obter_camera_ativa()
+        if ativa:
+            return ativa
+        print("  Nenhuma câmera ativa no site ainda. Cadastre/ative uma na aba "
+              "Câmeras. Checando de novo em 10s...")
+        time.sleep(10)
+
 
 def abrir_camera(url: str):
     src = int(url) if url.isdigit() else url
@@ -140,7 +186,7 @@ def main():
     print("  OmniPark — Leitor de Placas")
     print("=" * 55)
     print(f"  API    : {API_URL}")
-    print(f"  Câmera : {CAMERA_URL}")
+    print(f"  Câmera : {CAMERA_URL or 'câmera ativa do site (via API)'}")
     print(f"  Modelo : {YOLO_MODEL}")
     print("=" * 55)
 
@@ -149,26 +195,36 @@ def main():
     ocr = carregar_ocr()
     print("  Modelo de OCR carregado.\n")
 
-    # Vídeo de arquivo (teste) roda em loop na velocidade real.
-    eh_arquivo = not CAMERA_URL.isdigit() and \
-        not CAMERA_URL.lower().startswith(("rtsp", "http"))
-
     votos: Counter[str] = Counter()
     ultimo_voto = 0.0
     bloqueadas: dict[str, float] = {}  # placa enviada -> última vez vista
     n_frame = 0
 
     while True:
+        fonte, camera_id, nome = resolver_fonte()
+        # Vídeo de arquivo (teste) roda em loop na velocidade real.
+        eh_arquivo = not fonte.isdigit() and \
+            not fonte.lower().startswith(("rtsp", "http"))
         try:
-            cap = abrir_camera(CAMERA_URL)
+            cap = abrir_camera(fonte)
             fps = cap.get(cv2.CAP_PROP_FPS) or 30
-            print(f"Câmera conectada: {CAMERA_URL}\n")
+            print(f"Câmera conectada: {nome} ({fonte})\n")
         except RuntimeError as e:
             print(f"Erro: {e}. Tentando em 5s...")
             time.sleep(5)
             continue
 
+        ultima_checagem = time.time()
+
         while cap.isOpened():
+            # Verifica periodicamente se a câmera ativa mudou no site.
+            if not CAMERA_URL and time.time() - ultima_checagem > CHECAR_CAMERA_S:
+                ultima_checagem = time.time()
+                atual = obter_camera_ativa()
+                if atual and atual[0] != fonte:
+                    print(f"\nCâmera ativa trocada no site → {atual[2]}. Reconectando...\n")
+                    break
+
             ret, frame = cap.read()
             if not ret:
                 if eh_arquivo:
@@ -218,7 +274,8 @@ def main():
                     votos.clear()
                     bloqueadas[placa] = agora
                     print(f"\n[CONFIRMADA] {formatar(placa)} conf={conf_ocr:.0%}")
-                    enviar_para_sistema(placa, conf_ocr, imagem_para_base64(recorte))
+                    enviar_para_sistema(placa, conf_ocr, imagem_para_base64(recorte),
+                                        camera_id)
 
             if MOSTRAR_VIDEO:
                 cv2.imshow("OmniPark — Câmera (Q para sair)", frame)

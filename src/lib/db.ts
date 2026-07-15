@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { Vehicle, ParkingSettings } from '@/types/parking';
+import type { Vehicle, ParkingSettings, CameraConfig } from '@/types/parking';
 
 // ── Mapeamento banco (snake_case) → app (camelCase) ──────────────────────────
 
@@ -192,4 +192,90 @@ export async function dbUpsertSettings(s: ParkingSettings): Promise<void> {
       { onConflict: 'id' }
     );
   if (error) throw error;
+}
+
+// ── Câmeras ───────────────────────────────────────────────────────────────────
+
+function rowToCamera(row: Record<string, unknown>): CameraConfig {
+  return {
+    id:         String(row.id),
+    name:       row.name as string,
+    ipAddress:  row.ip_address as string,
+    port:       Number(row.port),
+    protocol:   row.protocol as CameraConfig['protocol'],
+    streamPath: (row.stream_path as string) ?? '/stream',
+    username:   (row.username as string) ?? '',
+    password:   (row.password as string) ?? '',
+    location:   (row.location as string) ?? '',
+    isActive:   row.is_active as boolean,
+  };
+}
+
+function cameraToRow(cam: Omit<CameraConfig, 'id' | 'isActive'>) {
+  return {
+    name:        cam.name,
+    ip_address:  cam.ipAddress,
+    port:        cam.port,
+    protocol:    cam.protocol,
+    stream_path: cam.streamPath,
+    username:    cam.username || null,
+    password:    cam.password || null,
+    location:    cam.location || null,
+  };
+}
+
+export async function dbFetchCameras(): Promise<CameraConfig[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('camera_settings')
+    .select('*')
+    .order('id');
+  if (error) throw error;
+  return (data ?? []).map(rowToCamera);
+}
+
+export async function dbUpsertCamera(cam: CameraConfig): Promise<CameraConfig> {
+  if (!supabase) throw new Error('Supabase não configurado');
+  const isNew = !/^\d+$/.test(cam.id); // id do banco é numérico; ids locais têm prefixo
+  if (isNew) {
+    const { data, error } = await supabase
+      .from('camera_settings')
+      .insert({ ...cameraToRow(cam), is_active: false })
+      .select()
+      .single();
+    if (error) throw error;
+    return rowToCamera(data);
+  }
+  const { data, error } = await supabase
+    .from('camera_settings')
+    .update(cameraToRow(cam))
+    .eq('id', Number(cam.id))
+    .select()
+    .single();
+  if (error) throw error;
+  return rowToCamera(data);
+}
+
+export async function dbDeleteCamera(id: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from('camera_settings').delete().eq('id', Number(id));
+  if (error) throw error;
+}
+
+/**
+ * Marca uma câmera como ativa. O índice único do banco só permite uma ativa,
+ * então primeiro zera todas e depois ativa a escolhida.
+ */
+export async function dbSetActiveCamera(id: string): Promise<void> {
+  if (!supabase) return;
+  const off = await supabase
+    .from('camera_settings')
+    .update({ is_active: false })
+    .neq('id', 0); // atinge todas as linhas
+  if (off.error) throw off.error;
+  const on = await supabase
+    .from('camera_settings')
+    .update({ is_active: true })
+    .eq('id', Number(id));
+  if (on.error) throw on.error;
 }

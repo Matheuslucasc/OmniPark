@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { CameraConfig, DEFAULT_CAMERA } from '@/types/parking';
-import { useLocalStorage } from '@/hooks/useLocalStorage';
+import { useCameras } from '@/hooks/useCameras';
+import { hasDB } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,12 +23,6 @@ import {
   Info,
 } from 'lucide-react';
 
-const CAMERAS_KEY = 'parking_cameras';
-
-function generateId() {
-  return `cam-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-}
-
 function buildStreamUrl(cam: CameraConfig): string {
   const auth =
     cam.username
@@ -38,10 +33,11 @@ function buildStreamUrl(cam: CameraConfig): string {
 }
 
 export function CameraPanel() {
-  const [cameras, setCameras] = useLocalStorage<CameraConfig[]>(CAMERAS_KEY, []);
+  const { cameras, loading, addCamera: addCam, saveCamera, removeCamera, setActiveCamera } = useCameras();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const { toast } = useToast();
 
   const emptyForm = (): Omit<CameraConfig, 'id'> => ({ ...DEFAULT_CAMERA, isActive: cameras.length === 0 });
@@ -50,50 +46,48 @@ export function CameraPanel() {
 
   /* ─── Helpers ─────────────────────────────────── */
 
-  const setActive = (id: string) => {
-    setCameras(prev => prev.map(c => ({ ...c, isActive: c.id === id })));
-    toast({ title: 'Câmera ativa atualizada' });
+  const comErro = async (fn: () => Promise<void>, sucesso: string) => {
+    setSaving(true);
+    try {
+      await fn();
+      toast({ title: sucesso });
+    } catch (e) {
+      console.error('[OmniPark] Erro na câmera:', e);
+      toast({
+        title: 'Erro ao salvar câmera',
+        description: e instanceof Error ? e.message : String(e),
+        variant: 'destructive',
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const deleteCamera = (id: string) => {
-    setCameras(prev => {
-      const remaining = prev.filter(c => c.id !== id);
-      if (remaining.length > 0 && !remaining.some(c => c.isActive)) {
-        remaining[0].isActive = true;
-      }
-      return remaining;
-    });
-    toast({ title: 'Câmera removida' });
-  };
+  const setActive = (id: string) =>
+    comErro(() => setActiveCamera(id), 'Câmera ativa atualizada');
+
+  const deleteCamera = (id: string) =>
+    comErro(() => removeCamera(id), 'Câmera removida');
 
   const addCamera = () => {
     if (!form.ipAddress || !form.name) {
       toast({ title: 'Preencha nome e IP', variant: 'destructive' });
       return;
     }
-    const isFirst = cameras.length === 0;
-    const newCam: CameraConfig = { id: generateId(), ...form, isActive: isFirst || form.isActive };
-    if (newCam.isActive) {
-      setCameras(prev => [...prev.map(c => ({ ...c, isActive: false })), newCam]);
-    } else {
-      setCameras(prev => [...prev, newCam]);
-    }
-    setForm(emptyForm());
-    setShowAddForm(false);
-    toast({ title: 'Câmera adicionada' });
+    comErro(async () => {
+      await addCam(form);
+      setForm(emptyForm());
+      setShowAddForm(false);
+    }, 'Câmera adicionada');
   };
 
   const saveEdit = () => {
     if (!editForm) return;
-    setCameras(prev =>
-      prev.map(c => {
-        if (c.id !== editForm.id) return editForm.isActive ? { ...c, isActive: false } : c;
-        return editForm;
-      })
-    );
-    setEditingId(null);
-    setEditForm(null);
-    toast({ title: 'Câmera atualizada' });
+    comErro(async () => {
+      await saveCamera(editForm);
+      setEditingId(null);
+      setEditForm(null);
+    }, 'Câmera atualizada');
   };
 
   const testConnection = async (cam: CameraConfig) => {
@@ -229,7 +223,9 @@ export function CameraPanel() {
               </div>
               <p className="text-xs text-muted-foreground flex items-start gap-1">
                 <Info className="w-3 h-3 mt-0.5 shrink-0" />
-                Use esta URL no seu script Python para capturar frames e enviar placas lidas via API.
+                {hasDB()
+                  ? 'O leitor de placas busca esta câmera automaticamente pela API. Ao trocar a câmera ativa aqui, o leitor passa a usar a nova sem precisar mexer no computador.'
+                  : 'Use esta URL no seu script Python para capturar frames e enviar placas lidas via API.'}
               </p>
             </div>
           ) : (
@@ -243,29 +239,21 @@ export function CameraPanel() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Info className="w-4 h-4" />
-            Como integrar com o Python (OCR)
+            Como o leitor usa esta câmera
           </CardTitle>
-          <CardDescription>
-            Exemplo de como conectar seu script de leitura de placas
-          </CardDescription>
         </CardHeader>
-        <CardContent>
-          <pre className="text-xs bg-muted p-4 rounded-lg overflow-x-auto whitespace-pre-wrap">
-{`import cv2, requests
-
-# URL gerada acima
-STREAM_URL = "${activeCamera ? buildStreamUrl(activeCamera) : 'rtsp://192.168.1.100:554/stream'}"
-API_URL    = "https://seu-app.vercel.app/api/plate-read"
-
-cap = cv2.VideoCapture(STREAM_URL)
-while True:
-    ret, frame = cap.read()
-    if not ret: break
-    plate = seu_ocr(frame)           # retorna ex. "ABC1D23"
-    if plate:
-        requests.post(API_URL, json={"plate": plate})
-cap.release()`}
-          </pre>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <p>
+            O leitor de placas (instalado no computador do estacionamento) consulta
+            a API a cada poucos segundos e usa sempre a <strong>câmera ativa</strong>{' '}
+            definida aqui. Para trocar a câmera de leitura, basta marcar outra como
+            ativa nesta tela — o leitor troca sozinho, sem precisar mexer no computador.
+          </p>
+          <p className="text-xs">
+            Deixe o campo <code>CAMERA_URL</code> vazio no arquivo <code>.env</code> do
+            leitor para ele obedecer a câmera ativa do site. Se preencher esse campo, o
+            leitor usa aquele valor fixo (útil para testar com um vídeo gravado).
+          </p>
         </CardContent>
       </Card>
 
@@ -287,11 +275,11 @@ cap.release()`}
           <CardContent className="space-y-4">
             <FormFields values={form} onChange={v => setForm(prev => ({ ...prev, ...v }))} />
             <div className="flex gap-2 pt-2">
-              <Button onClick={addCamera} className="flex-1">
+              <Button onClick={addCamera} className="flex-1" disabled={saving}>
                 <Save className="w-4 h-4 mr-1" />
                 Salvar
               </Button>
-              <Button variant="outline" onClick={() => setShowAddForm(false)}>
+              <Button variant="outline" onClick={() => setShowAddForm(false)} disabled={saving}>
                 <X className="w-4 h-4" />
               </Button>
             </div>
@@ -321,11 +309,11 @@ cap.release()`}
                   onChange={v => setEditForm(prev => prev ? { ...prev, ...v } : prev)}
                 />
                 <div className="flex gap-2 pt-2">
-                  <Button onClick={saveEdit} className="flex-1">
+                  <Button onClick={saveEdit} className="flex-1" disabled={saving}>
                     <Save className="w-4 h-4 mr-1" />
                     Salvar
                   </Button>
-                  <Button variant="outline" onClick={() => { setEditingId(null); setEditForm(null); }}>
+                  <Button variant="outline" onClick={() => { setEditingId(null); setEditForm(null); }} disabled={saving}>
                     <X className="w-4 h-4" />
                   </Button>
                 </div>
@@ -397,8 +385,9 @@ cap.release()`}
                     variant="outline"
                     className="mt-3 w-full"
                     onClick={() => setActive(cam.id)}
+                    disabled={saving}
                   >
-                    Definir como ativa
+                    Definir como ativa para leitura
                   </Button>
                 )}
               </CardContent>
