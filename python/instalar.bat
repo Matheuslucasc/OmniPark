@@ -45,7 +45,7 @@ venv\Scripts\python -m pip install -r requirements.txt
 if errorlevel 1 goto :erro
 
 echo [3/4] Baixando o modelo de OCR...
-venv\Scripts\python -c "from fast_plate_ocr import LicensePlateRecognizer; LicensePlateRecognizer('cct-xs-v2-global-model', device='cpu'); print('Modelo de OCR pronto.')"
+venv\Scripts\python -c "from fast_plate_ocr import LicensePlateRecognizer; LicensePlateRecognizer('cct-s-v2-global-model', device='cpu'); print('Modelo de OCR pronto.')"
 if errorlevel 1 goto :erro
 
 echo [4/4] Criando arquivo de configuracao...
