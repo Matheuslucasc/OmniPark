@@ -15,7 +15,7 @@ import { PriceModulesPanel } from '@/components/parking/PriceModulesPanel';
 import { PlateInput } from '@/components/parking/PlateInput';
 import { Button } from '@/components/ui/button';
 import { formatCurrency, formatPlate, formatTime } from '@/lib/parking-utils';
-import { Car, DollarSign, LogIn, LogOut, ParkingCircle, Menu, Clock } from 'lucide-react';
+import { Car, DollarSign, LogIn, LogOut, ParkingCircle, Menu, Clock, Camera, X } from 'lucide-react';
 import { Vehicle } from '@/types/parking';
 
 interface PlateRead {
@@ -53,6 +53,12 @@ const Index = () => {
       if (prev[0]?.plate === normalized) return prev;
       return [{ plate: normalized, imageUrl, at: new Date() }, ...prev].slice(0, 2);
     });
+  };
+
+  // Limpa a leitura atual (mantém o histórico de "Últimas placas lidas").
+  const limparLeitura = () => {
+    setLastReadPlate('');
+    setPlateImageUrl(undefined);
   };
 
   // ── Supabase Realtime — recebe placas do Python em tempo real ────────────
@@ -150,55 +156,69 @@ const Index = () => {
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-medium text-muted-foreground">Leitura de Placa (Câmera)</h3>
                 {lastReadPlate && (
-                  <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium animate-pulse">
-                    Nova leitura
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium animate-pulse">
+                      Nova leitura
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-muted-foreground"
+                      onClick={limparLeitura}
+                    >
+                      <X className="w-4 h-4 mr-1" />
+                      Limpar
+                    </Button>
+                  </div>
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Foto da placa */}
-                <div className="relative aspect-video bg-muted rounded-lg overflow-hidden border-2 border-dashed border-border flex items-center justify-center">
-                  {plateImageUrl ? (
-                    <img
-                      src={plateImageUrl}
-                      alt="Foto da placa"
-                      className="w-full h-full object-contain"
-                    />
-                  ) : (
-                    <div className="text-center text-muted-foreground p-4">
-                      <Car className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                      <p className="text-sm">Aguardando foto da câmera…</p>
-                      <p className="text-xs mt-1 opacity-70">O Python enviará a foto aqui</p>
-                    </div>
-                  )}
+              <div className="max-w-md mx-auto flex flex-col items-center gap-4">
+                {/* Foto pequena da placa lida (some ao limpar) */}
+                {plateImageUrl && (
+                  <img
+                    src={plateImageUrl}
+                    alt="Foto da placa lida"
+                    className="max-h-28 w-auto rounded-lg border-2 border-primary/30 shadow-sm object-contain"
+                  />
+                )}
+
+                <PlateDisplay
+                  plate={lastReadPlate || '---'}
+                  size="xl"
+                  variant={lastReadPlate ? 'highlight' : 'default'}
+                />
+
+                {/* Entrada manual / correção — sempre na mesma posição */}
+                <div className="w-full">
+                  <label className="text-xs text-muted-foreground block mb-1 text-center">
+                    {lastReadPlate ? 'Confira e corrija se necessário:' : 'Ou digite a placa manualmente:'}
+                  </label>
+                  <PlateInput
+                    value={lastReadPlate}
+                    onChange={(val) => {
+                      setLastReadPlate(val);
+                      pushPlateRead(val, plateImageUrl);
+                    }}
+                    placeholder="Digite a placa…"
+                  />
                 </div>
 
-                {/* Placa atual + entrada */}
-                <div className="space-y-3">
-                  <PlateDisplay plate={lastReadPlate || '---'} size="xl" variant={lastReadPlate ? 'highlight' : 'default'} />
-                  <div>
-                    <label className="text-xs text-muted-foreground block mb-1">Entrada manual / correção:</label>
-                    <PlateInput
-                      value={lastReadPlate}
-                      onChange={(val) => {
-                        setLastReadPlate(val);
-                        pushPlateRead(val, plateImageUrl);
-                      }}
-                      placeholder="Digite a placa…"
-                    />
-                  </div>
-                  {lastReadPlate && (
-                    <Button
-                      size="lg"
-                      className="w-full text-base font-bold shadow-md"
-                      onClick={() => setEntryOpen(true)}
-                    >
-                      <LogIn className="w-5 h-5 mr-2" />
-                      Dar Entrada — {lastReadPlate}
-                    </Button>
-                  )}
-                </div>
+                {lastReadPlate ? (
+                  <Button
+                    size="lg"
+                    className="w-full text-base font-bold shadow-md"
+                    onClick={() => setEntryOpen(true)}
+                  >
+                    <LogIn className="w-5 h-5 mr-2" />
+                    Dar Entrada — {lastReadPlate}
+                  </Button>
+                ) : (
+                  <p className="text-xs text-muted-foreground text-center flex items-center gap-2 pt-1">
+                    <Camera className="w-4 h-4 opacity-50 shrink-0" />
+                    A placa aparece aqui automaticamente quando um veículo passa pela câmera.
+                  </p>
+                )}
               </div>
 
               {/* Últimas 2 placas lidas */}
