@@ -92,8 +92,13 @@ export function useParking() {
 
   const registerEntry = useCallback(async (plate: string, vehicleName?: string): Promise<Vehicle> => {
     const normalized = plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    // Número sequencial do dia: quantas entradas já houve hoje + 1 (zera à meia-noite).
-    const dailyTicket = vehicles.filter(v => isToday(new Date(v.entryTime))).length + 1;
+    // Número sequencial do dia: maior número de hoje + 1 (zera à meia-noite).
+    // Usa o máximo (e não a contagem) para não colidir se algum registro do dia
+    // for excluído.
+    const ticketsHoje = vehicles
+      .filter(v => isToday(new Date(v.entryTime)))
+      .map(v => v.dailyTicket ?? 0);
+    const dailyTicket = Math.max(0, ...ticketsHoje) + 1;
     const draft: Omit<Vehicle, 'id'> = {
       plate:       normalized,
       vehicleName: vehicleName?.trim() || undefined,
