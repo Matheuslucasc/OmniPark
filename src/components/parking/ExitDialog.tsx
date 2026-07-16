@@ -62,6 +62,9 @@ export function ExitDialog({
     ? formatDuration(new Date(foundVehicle.entryTime), new Date())
     : '';
 
+  // Libera a busca por placa completa (6+) OU por número de ticket (1 a 4 dígitos).
+  const podeBuscar = plate.length >= 6 || /^\d{1,4}$/.test(plate);
+
   useEffect(() => {
     if (open && preSelectedVehicle) {
       setPlate(preSelectedVehicle.plate);
@@ -143,17 +146,23 @@ export function ExitDialog({
                   <PlateInput
                     value={plate}
                     onChange={val => { setPlate(val); setFoundVehicle(null); }}
-                    onSubmit={handleSearch}
+                    onSubmit={() => { if (podeBuscar) handleSearch(); }}
+                    submitMinLength={1}
                     autoFocus
                   />
                 </div>
-                <Button className="w-full" onClick={handleSearch} disabled={plate.length < 6}>
+                <Button className="w-full" onClick={handleSearch} disabled={!podeBuscar}>
                   <Search className="w-4 h-4 mr-2" />
                   Buscar Veículo
                 </Button>
-                {plate.length >= 6 && (
+                {podeBuscar && (
                   <p className="text-xs text-muted-foreground text-center">
                     Pressione Enter ou clique em Buscar
+                  </p>
+                )}
+                {foundVehicle === null && plate.length > 0 && !podeBuscar && (
+                  <p className="text-xs text-muted-foreground text-center">
+                    Digite a placa completa ou o nº do ticket
                   </p>
                 )}
               </>
