@@ -279,3 +279,34 @@ export async function dbSetActiveCamera(id: string): Promise<void> {
     .eq('id', Number(id));
   if (on.error) throw on.error;
 }
+
+// ── Correções de placa (dataset para melhorar a precisão) ────────────────────
+
+function normalizarPlaca(p: string): string {
+  return p.toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+/**
+ * Registra o que o OCR leu vs. a placa que o operador confirmou. Chamado ao
+ * registrar uma entrada originada de leitura de câmera. Falha em silêncio
+ * (não deve atrapalhar o registro da entrada).
+ */
+export async function dbLogCorrection(
+  ocrPlate: string,
+  finalPlate: string,
+  imageUrl?: string,
+  cameraId?: number | null,
+): Promise<void> {
+  if (!supabase) return;
+  const ocr = normalizarPlaca(ocrPlate);
+  const fin = normalizarPlaca(finalPlate);
+  if (!fin) return;
+  const { error } = await supabase.from('plate_corrections').insert({
+    ocr_plate:     ocr || null,
+    final_plate:   fin,
+    was_corrected: ocr !== fin,
+    image_url:     imageUrl ?? null,
+    camera_id:     cameraId ?? null,
+  });
+  if (error) throw error;
+}

@@ -111,6 +111,25 @@ CREATE INDEX IF NOT EXISTS idx_plate_reads_read_at   ON plate_reads (read_at DES
 CREATE INDEX IF NOT EXISTS idx_plate_reads_processed ON plate_reads (processed);
 
 -- ============================================================
+-- Tabela: plate_corrections
+-- Guarda o que o OCR leu vs. a placa que o operador confirmou.
+-- Serve para medir a taxa de acerto e, no futuro, treinar/afinar o modelo
+-- com as placas reais deste estacionamento (foto + texto correto).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS plate_corrections (
+  id            SERIAL PRIMARY KEY,
+  ocr_plate     VARCHAR(10),                                     -- o que o OCR leu
+  final_plate   VARCHAR(10)    NOT NULL,                         -- o que o operador confirmou
+  was_corrected BOOLEAN        NOT NULL DEFAULT FALSE,           -- ocr != final
+  image_url     TEXT,                                            -- foto da placa lida
+  camera_id     INTEGER        REFERENCES camera_settings (id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ    NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_plate_corrections_created  ON plate_corrections (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_plate_corrections_wascorr  ON plate_corrections (was_corrected);
+
+-- ============================================================
 -- View: dashboard_stats
 -- Estatísticas prontas para o painel (últimas 24h)
 -- ============================================================

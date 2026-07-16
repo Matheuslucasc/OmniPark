@@ -15,6 +15,7 @@ import { PriceModulesPanel } from '@/components/parking/PriceModulesPanel';
 import { PlateInput } from '@/components/parking/PlateInput';
 import { Button } from '@/components/ui/button';
 import { formatCurrency, formatPlate, formatTime } from '@/lib/parking-utils';
+import { dbLogCorrection } from '@/lib/db';
 import { Car, DollarSign, LogIn, LogOut, ParkingCircle, Menu, Clock, Camera, X } from 'lucide-react';
 import { Vehicle } from '@/types/parking';
 
@@ -44,6 +45,10 @@ const Index = () => {
   const [lastReadPlate, setLastReadPlate] = useState('');
   const [plateImageUrl, setPlateImageUrl] = useState<string | undefined>();
   const [recentPlates, setRecentPlates] = useState<PlateRead[]>([]);
+  // Texto original do OCR (antes de qualquer correção) e câmera de origem —
+  // usados para registrar a correção quando a entrada é confirmada.
+  const [ocrPlate, setOcrPlate] = useState('');
+  const [readCameraId, setReadCameraId] = useState<number | null>(null);
 
   const pushPlateRead = (plate: string, imageUrl?: string) => {
     const normalized = plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -59,6 +64,19 @@ const Index = () => {
   const limparLeitura = () => {
     setLastReadPlate('');
     setPlateImageUrl(undefined);
+    setOcrPlate('');
+    setReadCameraId(null);
+  };
+
+  // Registra a entrada e, se veio da câmera, grava a correção (OCR x confirmado).
+  const registerEntryWithLog = async (plate: string, vehicleName?: string) => {
+    const vehicle = await registerEntry(plate, vehicleName);
+    if (ocrPlate) {
+      dbLogCorrection(ocrPlate, vehicle.plate, plateImageUrl, readCameraId)
+        .catch(e => console.error('[OmniPark] Falha ao registrar correção:', e));
+      setOcrPlate('');
+    }
+    return vehicle;
   };
 
   // ── Supabase Realtime — recebe placas do Python em tempo real ────────────
@@ -71,9 +89,11 @@ const Index = () => {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'plate_reads' },
         (payload) => {
-          const row = payload.new as { plate: string; image_url?: string };
+          const row = payload.new as { plate: string; image_url?: string; camera_id?: number };
           if (!row.plate) return;
           setLastReadPlate(row.plate);
+          setOcrPlate(row.plate);               // guarda o original do OCR
+          setReadCameraId(row.camera_id ?? null);
           setPlateImageUrl(row.image_url ?? undefined);
           pushPlateRead(row.plate, row.image_url ?? undefined);
         }
@@ -296,7 +316,7 @@ const Index = () => {
             <EntryDialog
               open
               onOpenChange={() => setActiveTab('dashboard')}
-              onConfirm={registerEntry}
+              onConfirm={registerEntryWithLog}
               lastReadPlate={lastReadPlate}
               plateImageUrl={plateImageUrl}
               settings={settings}
@@ -391,7 +411,7 @@ const Index = () => {
       <EntryDialog
         open={entryOpen}
         onOpenChange={setEntryOpen}
-        onConfirm={registerEntry}
+        onConfirm={registerEntryWithLog}
         lastReadPlate={lastReadPlate}
         plateImageUrl={plateImageUrl}
         settings={settings}
