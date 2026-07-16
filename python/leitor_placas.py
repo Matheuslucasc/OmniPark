@@ -198,6 +198,10 @@ def abrir_camera(url: str):
     if not cap.isOpened():
         raise RuntimeError(f"Não abriu a câmera: {url}")
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    # Evita travar para sempre se a câmera cair (ex.: DroidCam vai a segundo
+    # plano): a leitura falha em vez de bloquear, e o leitor reconecta.
+    cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 8000)
+    cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 6000)
     return cap
 
 
