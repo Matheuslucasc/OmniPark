@@ -45,12 +45,18 @@ CAMERA_API_URL = API_URL.replace("/plate-read", "/active-camera")
 CHECAR_CAMERA_S = float(os.getenv("CHECAR_CAMERA_S", "15"))
 YOLO_MODEL    = os.getenv("YOLO_MODEL",          str(Path(__file__).parent / "license_plate_detector.pt"))
 CONFIANCA_MIN = float(os.getenv("CONFIANCA_MIN", "0.35"))  # confiança mínima do YOLO
-CONF_OCR_MIN  = float(os.getenv("CONF_OCR_MIN",  "0.70"))  # confiança mínima do OCR
-VOTOS_MIN     = int(os.getenv("VOTOS_MIN",       "3"))     # leituras iguais p/ confirmar
+CONF_OCR_MIN  = float(os.getenv("CONF_OCR_MIN",  "0.80"))  # confiança mínima do OCR
+VOTOS_MIN     = int(os.getenv("VOTOS_MIN",       "4"))     # leituras iguais p/ confirmar
 COOLDOWN_S    = float(os.getenv("COOLDOWN_S",    "30"))    # seg. fora da imagem p/ liberar
 PULAR_FRAMES  = int(os.getenv("PULAR_FRAMES",    "2"))     # processa 1 a cada N frames
 MOSTRAR_VIDEO = os.getenv("MOSTRAR_VIDEO",       "true").lower() == "true"
 MARGEM_PCT    = float(os.getenv("MARGEM_PCT",    "0.08"))  # margem ao redor da placa
+# Modelo de OCR: "cct-s-v2-global-model" (mais preciso) ou
+# "cct-xs-v2-global-model" (mais rápido, menos preciso).
+OCR_MODELO    = os.getenv("OCR_MODELO", "cct-s-v2-global-model")
+# Largura mínima (px) do recorte da placa para confiar na leitura. Placas
+# pequenas/distantes geram leitura errada com confiança falsamente alta.
+MIN_LARGURA   = int(os.getenv("MIN_LARGURA_PLACA", "110"))
 
 try:
     from ultralytics import YOLO
@@ -79,7 +85,7 @@ def imagem_para_base64(imagem) -> str:
 
 def carregar_ocr():
     from fast_plate_ocr import LicensePlateRecognizer
-    return LicensePlateRecognizer("cct-xs-v2-global-model", device="cpu")
+    return LicensePlateRecognizer(OCR_MODELO, device="cpu")
 
 
 def ler_placa(ocr, recorte) -> tuple[str | None, float]:
@@ -88,8 +94,15 @@ def ler_placa(ocr, recorte) -> tuple[str | None, float]:
     Retorna (placa normalizada ou None, confiança média do OCR).
     """
     import numpy as np
-    if recorte.size == 0 or recorte.shape[1] < 40:
+    # Recorte pequeno demais: a leitura seria um chute. Melhor ignorar e
+    # esperar o carro chegar mais perto (placa maior no frame).
+    if recorte.size == 0 or recorte.shape[1] < MIN_LARGURA:
         return None, 0.0
+    # Placa ainda modesta: amplia com interpolação cúbica antes do OCR.
+    if recorte.shape[1] < 200:
+        escala = 200 / recorte.shape[1]
+        recorte = cv2.resize(recorte, None, fx=escala, fy=escala,
+                             interpolation=cv2.INTER_CUBIC)
     try:
         previsoes = ocr.run(recorte, return_confidence=True)
     except Exception as e:
@@ -98,7 +111,14 @@ def ler_placa(ocr, recorte) -> tuple[str | None, float]:
     if not previsoes:
         return None, 0.0
     p = previsoes[0]
-    conf = float(np.mean(p.char_probs)) if p.char_probs is not None else 0.0
+    if p.char_probs is None:
+        return None, 0.0
+    probs = np.asarray(p.char_probs, dtype=float)
+    conf = float(np.mean(probs))
+    # Rejeita se QUALQUER caractere veio com baixa confiança — é aí que mora
+    # o erro de 1 letra, que a média mascara.
+    if float(np.min(probs)) < 0.55:
+        return None, conf
     return normalizar(p.plate), conf
 
 
@@ -197,6 +217,7 @@ def main():
 
     votos: Counter[str] = Counter()
     ultimo_voto = 0.0
+    ultimo_aviso = 0.0
     bloqueadas: dict[str, float] = {}  # placa enviada -> última vez vista
     n_frame = 0
 
@@ -244,6 +265,15 @@ def main():
                 resultados = model(frame, conf=CONFIANCA_MIN, verbose=False)
                 for box in resultados[0].boxes:
                     recorte = recortar_placa(frame, box)
+
+                    # Placa detectada mas pequena: avisa (no máximo a cada 3s)
+                    # para o operador aproximar a câmera.
+                    larg = recorte.shape[1] if recorte.size else 0
+                    if 0 < larg < MIN_LARGURA and agora - ultimo_aviso > 3.0:
+                        print(f"  placa detectada, porém pequena ({larg}px < {MIN_LARGURA}px) "
+                              "— aproxime a câmera para ler com segurança")
+                        ultimo_aviso = agora
+
                     placa, conf_ocr = ler_placa(ocr, recorte)
 
                     if MOSTRAR_VIDEO:
