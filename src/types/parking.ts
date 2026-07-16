@@ -6,6 +6,7 @@ export interface Vehicle {
   exitTime?: string; // ISO string
   amountPaid?: number;
   status: 'parked' | 'exited';
+  dailyTicket?: number; // nº sequencial do dia (001, 002...), zera a cada dia
 }
 
 export interface PricingSettings {

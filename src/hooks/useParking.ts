@@ -92,17 +92,22 @@ export function useParking() {
 
   const registerEntry = useCallback(async (plate: string, vehicleName?: string): Promise<Vehicle> => {
     const normalized = plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    // Número sequencial do dia: quantas entradas já houve hoje + 1 (zera à meia-noite).
+    const dailyTicket = vehicles.filter(v => isToday(new Date(v.entryTime))).length + 1;
     const draft: Omit<Vehicle, 'id'> = {
       plate:       normalized,
       vehicleName: vehicleName?.trim() || undefined,
       entryTime:   new Date().toISOString(),
       status:      'parked',
+      dailyTicket,
     };
 
     if (hasDB()) {
       const saved = await dbInsertVehicle(draft);
-      setVehicles(prev => [saved, ...prev]);
-      return saved;
+      // Garante o número mesmo se a coluna ainda não existir no banco.
+      const withTicket = { ...saved, dailyTicket: saved.dailyTicket ?? dailyTicket };
+      setVehicles(prev => [withTicket, ...prev]);
+      return withTicket;
     }
 
     const newVehicle: Vehicle = { id: generateId(), ...draft };
@@ -137,8 +142,16 @@ export function useParking() {
     return exited;
   }, [vehicles, settings.pricing]);
 
-  const findVehicleByPlate = useCallback((plate: string): Vehicle | undefined => {
-    const normalized = plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const findVehicleByPlate = useCallback((termo: string): Vehicle | undefined => {
+    const normalized = termo.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    // Só dígitos: tenta pelo número do ticket do dia (ex.: "5" ou "005").
+    if (/^\d+$/.test(normalized)) {
+      const numero = parseInt(normalized, 10);
+      const porTicket = parkedVehicles
+        .filter(v => v.dailyTicket === numero)
+        .sort((a, b) => new Date(b.entryTime).getTime() - new Date(a.entryTime).getTime())[0];
+      if (porTicket) return porTicket;
+    }
     return parkedVehicles.find(v => v.plate === normalized);
   }, [parkedVehicles]);
 
@@ -147,8 +160,14 @@ export function useParking() {
       .filter(v => {
         if (v.status !== 'exited') return false;
         if (filters.plate) {
-          const norm = filters.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
-          if (!v.plate.includes(norm)) return false;
+          const term = filters.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (term) {
+            const okPlaca = v.plate.includes(term);
+            const okTicket = v.dailyTicket != null &&
+              (String(v.dailyTicket).padStart(3, '0').includes(term) ||
+               String(v.dailyTicket) === term.replace(/^0+/, ''));
+            if (!okPlaca && !okTicket) return false;
+          }
         }
         if (filters.startDate && v.exitTime) {
           if (new Date(v.exitTime) < new Date(filters.startDate)) return false;

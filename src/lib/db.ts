@@ -12,6 +12,7 @@ function rowToVehicle(row: Record<string, unknown>): Vehicle {
     exitTime:    row.exit_time as string | undefined,
     amountPaid:  row.amount_paid != null ? Number(row.amount_paid) : undefined,
     status:      row.status as 'parked' | 'exited',
+    dailyTicket: row.daily_ticket != null ? Number(row.daily_ticket) : undefined,
   };
 }
 
@@ -31,18 +32,24 @@ export async function dbInsertVehicle(
   vehicle: Omit<Vehicle, 'id'>
 ): Promise<Vehicle> {
   if (!supabase) throw new Error('Supabase não configurado');
-  const { data, error } = await supabase
+  const base = {
+    plate:        vehicle.plate,
+    vehicle_name: vehicle.vehicleName ?? null,
+    entry_time:   vehicle.entryTime,
+    status:       vehicle.status,
+  };
+  let res = await supabase
     .from('vehicles')
-    .insert({
-      plate:        vehicle.plate,
-      vehicle_name: vehicle.vehicleName ?? null,
-      entry_time:   vehicle.entryTime,
-      status:       vehicle.status,
-    })
+    .insert({ ...base, daily_ticket: vehicle.dailyTicket ?? null })
     .select()
     .single();
-  if (error) throw error;
-  return rowToVehicle(data);
+  // Se a coluna daily_ticket ainda não foi criada no banco, insere sem ela
+  // (a entrada nunca deve falhar por causa desse recurso opcional).
+  if (res.error && /daily_ticket/.test(res.error.message)) {
+    res = await supabase.from('vehicles').insert(base).select().single();
+  }
+  if (res.error) throw res.error;
+  return rowToVehicle(res.data);
 }
 
 export async function dbUpdateVehicleExit(

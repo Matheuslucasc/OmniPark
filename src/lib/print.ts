@@ -80,6 +80,7 @@ export interface EntryTicketData {
   vehicleName?: string;
   entryTime: string;
   id: string;
+  ticketNumber?: string; // nº diário formatado (ex.: "001")
   parkingName: string;
   parkingAddress?: string;
   parkingPhone?: string;
@@ -98,6 +99,7 @@ export function buildEntryTicketHtml(d: EntryTicketData): string {
     ${d.parkingAddress ? `<div class="center small">${d.parkingAddress}</div>` : ''}
     ${d.parkingPhone   ? `<div class="center small">Tel: ${d.parkingPhone}</div>` : ''}
     <div class="center small">TICKET DE ENTRADA</div>
+    ${d.ticketNumber ? `<div class="center large bold">Nº ${d.ticketNumber}</div>` : ''}
     <div class="divider"></div>
     <div class="center xlarge bold">${d.plate}</div>
     ${d.vehicleName ? `<div class="center small">${d.vehicleName}</div>` : ''}
@@ -106,6 +108,7 @@ export function buildEntryTicketHtml(d: EntryTicketData): string {
     ${d.ticketObservation ? `<div class="divider"></div><div class="center small">${d.ticketObservation}</div>` : ''}
     <div class="divider"></div>
     <div class="center small">Guarde este ticket</div>
+    ${d.ticketNumber ? `<div class="center small">Ticket Nº ${d.ticketNumber}</div>` : ''}
     <div class="center small">ID: ${d.id.slice(0, 8)}</div>
   `;
 }
@@ -117,6 +120,7 @@ export function buildExitReceiptHtml(d: ExitReceiptData): string {
     ${d.parkingAddress ? `<div class="center small">${d.parkingAddress}</div>` : ''}
     ${d.parkingPhone   ? `<div class="center small">Tel: ${d.parkingPhone}</div>` : ''}
     <div class="center small">COMPROVANTE DE SAÍDA</div>
+    ${d.ticketNumber ? `<div class="center large bold">Nº ${d.ticketNumber}</div>` : ''}
     <div class="divider"></div>
     <div class="center xlarge bold">${d.plate}</div>
     ${d.vehicleName ? `<div class="center small">${d.vehicleName}</div>` : ''}

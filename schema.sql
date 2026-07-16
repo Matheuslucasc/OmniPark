@@ -34,8 +34,12 @@ CREATE TABLE IF NOT EXISTS vehicles (
   amount_paid   DECIMAL(10,2),
   status        VARCHAR(10)    NOT NULL DEFAULT 'parked'
                   CHECK (status IN ('parked', 'exited')),
+  daily_ticket  INTEGER,                                         -- nº sequencial do dia (001...)
   created_at    TIMESTAMPTZ    NOT NULL DEFAULT NOW()
 );
+
+-- Para bancos já existentes, adicione a coluna (seguro rodar de novo):
+ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS daily_ticket INTEGER;
 
 CREATE INDEX IF NOT EXISTS idx_vehicles_plate  ON vehicles (plate);
 CREATE INDEX IF NOT EXISTS idx_vehicles_status ON vehicles (status);

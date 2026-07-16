@@ -13,6 +13,11 @@ export function isToday(date: Date): boolean {
   );
 }
 
+/** Formata o número do ticket diário: 1 -> "001". Vazio se não houver número. */
+export function formatTicket(n?: number): string {
+  return n != null ? String(n).padStart(3, '0') : '';
+}
+
 export function calculateParkingFee(
   entryTime: Date,
   exitTime: Date,

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { PlateInput } from './PlateInput';
 import { PlateDisplay } from './PlateDisplay';
 import { Vehicle, ParkingSettings } from '@/types/parking';
-import { formatDateTime, isValidPlate } from '@/lib/parking-utils';
+import { formatDateTime, isValidPlate, formatTicket } from '@/lib/parking-utils';
 import { printHtml, buildEntryTicketHtml } from '@/lib/print';
 import { LogIn, LogOut, Printer, Check, Car, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -83,6 +83,7 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
         vehicleName:       confirmedVehicle.vehicleName,
         entryTime:         formatDateTime(confirmedVehicle.entryTime),
         id:                confirmedVehicle.id,
+        ticketNumber:      formatTicket(confirmedVehicle.dailyTicket),
         parkingName:       settings.parkingName,
         parkingAddress:    settings.parkingAddress,
         parkingPhone:      settings.parkingPhone,
@@ -198,6 +199,9 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
             <div className="p-4 bg-success/10 rounded-xl border-2 border-success/20">
               <Check className="w-12 h-12 text-success mx-auto mb-2" />
               <p className="font-medium text-success">Entrada Registrada!</p>
+              {confirmedVehicle.dailyTicket != null && (
+                <p className="text-3xl font-bold mt-2">Nº {formatTicket(confirmedVehicle.dailyTicket)}</p>
+              )}
             </div>
 
             <PlateDisplay plate={confirmedVehicle.plate} size="lg" variant="highlight" />

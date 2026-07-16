@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Vehicle, ParkingSettings } from '@/types/parking';
-import { formatDateTime, formatDuration, formatCurrency, formatPlate, formatDate } from '@/lib/parking-utils';
+import { formatDateTime, formatDuration, formatCurrency, formatPlate, formatDate, formatTicket } from '@/lib/parking-utils';
 import { printHtml, buildExitReceiptHtml } from '@/lib/print';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -39,8 +39,9 @@ export function HistoryTable({ getHistory, onDelete, settings }: HistoryTablePro
   );
 
   const handleExport = () => {
-    const headers = ['Placa', 'Entrada', 'Saída', 'Permanência', 'Valor'];
+    const headers = ['Nº', 'Placa', 'Entrada', 'Saída', 'Permanência', 'Valor'];
     const rows = filteredHistory.map(v => [
+      formatTicket(v.dailyTicket),
       formatPlate(v.plate),
       formatDateTime(v.entryTime),
       v.exitTime ? formatDateTime(v.exitTime) : '-',
@@ -70,6 +71,7 @@ export function HistoryTable({ getHistory, onDelete, settings }: HistoryTablePro
         duration,
         amountPaid:        vehicle.amountPaid ?? 0,
         id:                vehicle.id,
+        ticketNumber:      formatTicket(vehicle.dailyTicket),
         parkingName:       settings.parkingName,
         parkingAddress:    settings.parkingAddress,
         parkingPhone:      settings.parkingPhone,
@@ -86,7 +88,7 @@ export function HistoryTable({ getHistory, onDelete, settings }: HistoryTablePro
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Buscar por placa..."
+            placeholder="Buscar por placa ou nº..."
             value={plateFilter}
             onChange={(e) => setPlateFilter(e.target.value.toUpperCase())}
             className="pl-10 font-mono"
@@ -151,6 +153,7 @@ export function HistoryTable({ getHistory, onDelete, settings }: HistoryTablePro
         <Table className="min-w-[600px]">
           <TableHeader>
             <TableRow>
+              <TableHead className="w-[60px]">Nº</TableHead>
               <TableHead>Placa</TableHead>
               <TableHead>Entrada</TableHead>
               <TableHead>Saída</TableHead>
@@ -162,13 +165,16 @@ export function HistoryTable({ getHistory, onDelete, settings }: HistoryTablePro
           <TableBody>
             {filteredHistory.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                   Nenhum registro encontrado
                 </TableCell>
               </TableRow>
             ) : (
               filteredHistory.map((vehicle) => (
                 <TableRow key={vehicle.id}>
+                  <TableCell className="font-mono font-bold text-primary">
+                    {formatTicket(vehicle.dailyTicket) || '—'}
+                  </TableCell>
                   <TableCell className="font-mono font-bold">
                     {formatPlate(vehicle.plate)}
                   </TableCell>

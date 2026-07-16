@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { PlateInput } from './PlateInput';
 import { PlateDisplay } from './PlateDisplay';
 import { Vehicle, PricingSettings, ParkingSettings, PriceModule } from '@/types/parking';
-import { formatDateTime, formatDuration, formatCurrency, calculateParkingFee } from '@/lib/parking-utils';
+import { formatDateTime, formatDuration, formatCurrency, calculateParkingFee, formatTicket } from '@/lib/parking-utils';
 import { printHtml, buildExitReceiptHtml } from '@/lib/print';
 import { usePriceModules } from '@/hooks/usePriceModules';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
@@ -113,6 +113,7 @@ export function ExitDialog({
         duration:          formatDuration(new Date(exitedVehicle.entryTime), new Date(exitedVehicle.exitTime!)),
         amountPaid:        exitedVehicle.amountPaid ?? 0,
         id:                exitedVehicle.id,
+        ticketNumber:      formatTicket(exitedVehicle.dailyTicket),
         parkingName:       settings.parkingName,
         parkingAddress:    settings.parkingAddress,
         parkingPhone:      settings.parkingPhone,
@@ -138,7 +139,7 @@ export function ExitDialog({
             {!foundVehicle ? (
               <>
                 <div>
-                  <label className="text-sm font-medium mb-2 block">Buscar Placa</label>
+                  <label className="text-sm font-medium mb-2 block">Buscar por placa ou nº do ticket</label>
                   <PlateInput
                     value={plate}
                     onChange={val => { setPlate(val); setFoundVehicle(null); }}
@@ -160,6 +161,11 @@ export function ExitDialog({
               <div className="space-y-4">
                 {/* ── Info do veículo ── */}
                 <div className="p-4 bg-secondary rounded-xl">
+                  {foundVehicle.dailyTicket != null && (
+                    <p className="text-center text-sm font-semibold text-muted-foreground mb-1">
+                      Ticket Nº {formatTicket(foundVehicle.dailyTicket)}
+                    </p>
+                  )}
                   <PlateDisplay plate={foundVehicle.plate} size="lg" className="w-full justify-center" />
                   {foundVehicle.vehicleName && (
                     <p className="text-center text-sm text-muted-foreground mt-1">{foundVehicle.vehicleName}</p>
