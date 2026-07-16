@@ -7,3 +7,7 @@ dist
 python/venv/
 python/__pycache__/
 python/.env
+
+# Pacote de distribuição do leitor
+OmniPark-Leitor.zip
+_dist/

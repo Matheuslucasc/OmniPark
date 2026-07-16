@@ -32,90 +32,19 @@ function buildStreamUrl(cam: CameraConfig): string {
   return `${cam.protocol}://${auth}${cam.ipAddress}:${cam.port}${path}`;
 }
 
-export function CameraPanel() {
-  const { cameras, loading, addCamera: addCam, saveCamera, removeCamera, setActiveCamera } = useCameras();
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [testing, setTesting] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const { toast } = useToast();
-
-  const emptyForm = (): Omit<CameraConfig, 'id'> => ({ ...DEFAULT_CAMERA, isActive: cameras.length === 0 });
-  const [form, setForm] = useState<Omit<CameraConfig, 'id'>>(emptyForm());
-  const [editForm, setEditForm] = useState<CameraConfig | null>(null);
-
-  /* ─── Helpers ─────────────────────────────────── */
-
-  const comErro = async (fn: () => Promise<void>, sucesso: string) => {
-    setSaving(true);
-    try {
-      await fn();
-      toast({ title: sucesso });
-    } catch (e) {
-      console.error('[OmniPark] Erro na câmera:', e);
-      toast({
-        title: 'Erro ao salvar câmera',
-        description: e instanceof Error ? e.message : String(e),
-        variant: 'destructive',
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const setActive = (id: string) =>
-    comErro(() => setActiveCamera(id), 'Câmera ativa atualizada');
-
-  const deleteCamera = (id: string) =>
-    comErro(() => removeCamera(id), 'Câmera removida');
-
-  const addCamera = () => {
-    if (!form.ipAddress || !form.name) {
-      toast({ title: 'Preencha nome e IP', variant: 'destructive' });
-      return;
-    }
-    comErro(async () => {
-      await addCam(form);
-      setForm(emptyForm());
-      setShowAddForm(false);
-    }, 'Câmera adicionada');
-  };
-
-  const saveEdit = () => {
-    if (!editForm) return;
-    comErro(async () => {
-      await saveCamera(editForm);
-      setEditingId(null);
-      setEditForm(null);
-    }, 'Câmera atualizada');
-  };
-
-  const testConnection = async (cam: CameraConfig) => {
-    setTesting(cam.id);
-    // Browser cannot directly ping RTSP; we do an HTTP check on IP:port
-    const httpUrl = `http://${cam.ipAddress}:${cam.protocol === 'rtsp' ? 80 : cam.port}`;
-    try {
-      await fetch(httpUrl, { mode: 'no-cors', signal: AbortSignal.timeout(3000) });
-      toast({ title: `${cam.name}: endereço alcançável`, description: 'O host respondeu.' });
-    } catch {
-      toast({
-        title: `${cam.name}: sem resposta`,
-        description: 'Verifique IP, porta e se a câmera está ligada.',
-        variant: 'destructive',
-      });
-    }
-    setTesting(null);
-  };
-
-  /* ─── Sub-components ──────────────────────────── */
-
-  const FormFields = ({
-    values,
-    onChange,
-  }: {
-    values: Omit<CameraConfig, 'id'>;
-    onChange: (v: Partial<Omit<CameraConfig, 'id'>>) => void;
-  }) => (
+/**
+ * Campos do formulário de câmera. Precisa ficar FORA do CameraPanel: se for
+ * declarado dentro, o React recria o componente a cada tecla e o input perde
+ * o foco depois de 1 caractere.
+ */
+function FormFields({
+  values,
+  onChange,
+}: {
+  values: Omit<CameraConfig, 'id'>;
+  onChange: (v: Partial<Omit<CameraConfig, 'id'>>) => void;
+}) {
+  return (
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="space-y-2">
         <Label>Nome da câmera *</Label>
@@ -193,6 +122,82 @@ export function CameraPanel() {
       </div>
     </div>
   );
+}
+
+export function CameraPanel() {
+  const { cameras, loading, addCamera: addCam, saveCamera, removeCamera, setActiveCamera } = useCameras();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [testing, setTesting] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  const emptyForm = (): Omit<CameraConfig, 'id'> => ({ ...DEFAULT_CAMERA, isActive: cameras.length === 0 });
+  const [form, setForm] = useState<Omit<CameraConfig, 'id'>>(emptyForm());
+  const [editForm, setEditForm] = useState<CameraConfig | null>(null);
+
+  /* ─── Helpers ─────────────────────────────────── */
+
+  const comErro = async (fn: () => Promise<void>, sucesso: string) => {
+    setSaving(true);
+    try {
+      await fn();
+      toast({ title: sucesso });
+    } catch (e) {
+      console.error('[OmniPark] Erro na câmera:', e);
+      toast({
+        title: 'Erro ao salvar câmera',
+        description: e instanceof Error ? e.message : String(e),
+        variant: 'destructive',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const setActive = (id: string) =>
+    comErro(() => setActiveCamera(id), 'Câmera ativa atualizada');
+
+  const deleteCamera = (id: string) =>
+    comErro(() => removeCamera(id), 'Câmera removida');
+
+  const addCamera = () => {
+    if (!form.ipAddress || !form.name) {
+      toast({ title: 'Preencha nome e IP', variant: 'destructive' });
+      return;
+    }
+    comErro(async () => {
+      await addCam(form);
+      setForm(emptyForm());
+      setShowAddForm(false);
+    }, 'Câmera adicionada');
+  };
+
+  const saveEdit = () => {
+    if (!editForm) return;
+    comErro(async () => {
+      await saveCamera(editForm);
+      setEditingId(null);
+      setEditForm(null);
+    }, 'Câmera atualizada');
+  };
+
+  const testConnection = async (cam: CameraConfig) => {
+    setTesting(cam.id);
+    // Browser cannot directly ping RTSP; we do an HTTP check on IP:port
+    const httpUrl = `http://${cam.ipAddress}:${cam.protocol === 'rtsp' ? 80 : cam.port}`;
+    try {
+      await fetch(httpUrl, { mode: 'no-cors', signal: AbortSignal.timeout(3000) });
+      toast({ title: `${cam.name}: endereço alcançável`, description: 'O host respondeu.' });
+    } catch {
+      toast({
+        title: `${cam.name}: sem resposta`,
+        description: 'Verifique IP, porta e se a câmera está ligada.',
+        variant: 'destructive',
+      });
+    }
+    setTesting(null);
+  };
 
   const activeCamera = cameras.find(c => c.isActive);
 
