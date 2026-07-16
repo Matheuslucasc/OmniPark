@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { PlateInput } from './PlateInput';
 import { PlateDisplay } from './PlateDisplay';
 import { Vehicle, PricingSettings, ParkingSettings, PriceModule } from '@/types/parking';
@@ -9,12 +10,12 @@ import { formatDateTime, formatDuration, formatCurrency, calculateParkingFee, fo
 import { printHtml, buildExitReceiptHtml } from '@/lib/print';
 import { usePriceModules } from '@/hooks/usePriceModules';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
-import { LogOut, Printer, Check, Clock, DollarSign, Search, Tag } from 'lucide-react';
+import { LogOut, Printer, Check, Clock, DollarSign, Search, Tag, Pencil, AlertTriangle } from 'lucide-react';
 
 interface ExitDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (vehicleId: string, customPricing?: PricingSettings) => Promise<Vehicle | null> | Vehicle | null;
+  onConfirm: (vehicleId: string, customPricing?: PricingSettings, overrideAmount?: number) => Promise<Vehicle | null> | Vehicle | null;
   findVehicle: (plate: string) => Vehicle | undefined;
   pricing: PricingSettings;
   settings: ParkingSettings;
@@ -36,6 +37,9 @@ export function ExitDialog({
   const [selectedModule, setSelectedModule] = useState<PriceModule | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [tick, setTick] = useState(0);
+  const [naoEncontrado, setNaoEncontrado] = useState(false); // feedback da busca
+  const [valorManual, setValorManual] = useState<number | null>(null); // valor editado à mão
+  const [editandoValor, setEditandoValor] = useState(false);
   const { modules } = usePriceModules();
   // Lembra a última tarifa escolhida entre saídas ('padrao' ou id do módulo).
   const [lastTariffId, setLastTariffId] = useLocalStorage<string>('parking_last_tariff', 'padrao');
@@ -55,9 +59,11 @@ export function ExitDialog({
 
   // Preço e duração calculados sempre frescos — reagem a qualquer mudança
   const activePricing = selectedModule?.pricing ?? pricing;
-  const fee = foundVehicle
+  const feeCalculado = foundVehicle
     ? calculateParkingFee(new Date(foundVehicle.entryTime), new Date(), activePricing)
     : 0;
+  // Valor a cobrar: o editado à mão, se houver; senão o calculado.
+  const fee = valorManual ?? feeCalculado;
   const duration = foundVehicle
     ? formatDuration(new Date(foundVehicle.entryTime), new Date())
     : '';
@@ -75,8 +81,17 @@ export function ExitDialog({
       setPlate('');
       setFoundVehicle(null);
       setExitedVehicle(null);
+      setNaoEncontrado(false);
+      setValorManual(null);
+      setEditandoValor(false);
     }
   }, [open, preSelectedVehicle]);
+
+  // Trocar a tarifa recalcula o valor: descarta a edição manual.
+  useEffect(() => {
+    setValorManual(null);
+    setEditandoValor(false);
+  }, [selectedModule]);
 
   // Ao abrir com um veículo (ou quando os módulos carregam), aplica a última
   // tarifa que o operador usou.
@@ -92,13 +107,14 @@ export function ExitDialog({
   const handleSearch = () => {
     const v = findVehicle(plate);
     setFoundVehicle(v ?? null);
+    setNaoEncontrado(!v);
   };
 
   const handleConfirm = async () => {
     if (!foundVehicle) return;
     setSubmitting(true);
     try {
-      const exited = await onConfirm(foundVehicle.id, selectedModule?.pricing);
+      const exited = await onConfirm(foundVehicle.id, selectedModule?.pricing, valorManual ?? undefined);
       if (exited) setExitedVehicle(exited);
     } finally {
       setSubmitting(false);
@@ -145,12 +161,18 @@ export function ExitDialog({
                   <label className="text-sm font-medium mb-2 block">Buscar por placa ou nº do ticket</label>
                   <PlateInput
                     value={plate}
-                    onChange={val => { setPlate(val); setFoundVehicle(null); }}
+                    onChange={val => { setPlate(val); setFoundVehicle(null); setNaoEncontrado(false); }}
                     onSubmit={() => { if (podeBuscar) handleSearch(); }}
                     submitMinLength={1}
                     autoFocus
                   />
                 </div>
+                {naoEncontrado && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/30 text-sm text-destructive">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    Nenhum veículo estacionado com essa placa/número.
+                  </div>
+                )}
                 <Button className="w-full" onClick={handleSearch} disabled={!podeBuscar}>
                   <Search className="w-4 h-4 mr-2" />
                   Buscar Veículo
@@ -224,24 +246,60 @@ export function ExitDialog({
                   </div>
                 </div>
 
-                {/* ── Valor calculado ── */}
+                {/* ── Valor a cobrar (com opção de editar) ── */}
                 <div className="p-4 bg-primary/10 rounded-xl border-2 border-primary/20">
-                  <div className="flex items-center justify-between">
-                    <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
                       <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
                         <DollarSign className="w-4 h-4" />
                         Valor a Cobrar
                       </div>
-                      {selectedModule && (
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Tarifa: {selectedModule.name}
-                        </p>
+                      {valorManual != null ? (
+                        <p className="text-xs text-amber-600 mt-0.5">Valor ajustado manualmente</p>
+                      ) : selectedModule && (
+                        <p className="text-xs text-muted-foreground mt-0.5">Tarifa: {selectedModule.name}</p>
                       )}
                     </div>
-                    <span className="text-3xl font-bold text-primary">
-                      {formatCurrency(fee)}
-                    </span>
+
+                    {editandoValor ? (
+                      <div className="flex items-center gap-1">
+                        <span className="text-lg font-bold text-primary">R$</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="1"
+                          autoFocus
+                          defaultValue={fee}
+                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                          onBlur={(e) => {
+                            const n = parseFloat(e.target.value);
+                            setValorManual(isNaN(n) || n < 0 ? 0 : Math.round(n));
+                            setEditandoValor(false);
+                          }}
+                          className="w-24 h-10 text-right text-xl font-bold"
+                        />
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setEditandoValor(true)}
+                        className="flex items-center gap-2 group"
+                        title="Editar valor"
+                      >
+                        <span className="text-3xl font-bold text-primary">{formatCurrency(fee)}</span>
+                        <Pencil className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
+                      </button>
+                    )}
                   </div>
+                  {valorManual != null && !editandoValor && (
+                    <button
+                      type="button"
+                      onClick={() => setValorManual(null)}
+                      className="text-xs text-muted-foreground underline mt-2"
+                    >
+                      Voltar ao valor calculado ({formatCurrency(feeCalculado)})
+                    </button>
+                  )}
                 </div>
 
                 {/* ── Ações ── */}

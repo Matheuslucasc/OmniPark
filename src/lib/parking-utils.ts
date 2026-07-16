@@ -59,7 +59,9 @@ export function calculateParkingFee(
   }
 
   // Apply daily maximum
-  return Math.min(total, pricing.dailyMaxPrice);
+  const comMaximo = Math.min(total, pricing.dailyMaxPrice);
+  // Arredonda para valor cheio (sem centavos) — evita cobranças como R$ 10,42.
+  return Math.round(comMaximo);
 }
 
 export function formatDuration(entryTime: Date, exitTime?: Date): string {

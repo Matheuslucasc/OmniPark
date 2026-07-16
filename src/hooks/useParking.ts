@@ -120,16 +120,15 @@ export function useParking() {
     return newVehicle;
   }, [vehicles]);
 
-  const registerExit = useCallback(async (vehicleId: string, customPricing?: typeof settings.pricing): Promise<Vehicle | null> => {
+  const registerExit = useCallback(async (vehicleId: string, customPricing?: typeof settings.pricing, overrideAmount?: number): Promise<Vehicle | null> => {
     const target = vehicles.find(v => v.id === vehicleId && v.status === 'parked');
     if (!target) return null;
 
     const exitTime = new Date();
-    const amountPaid = calculateParkingFee(
-      new Date(target.entryTime),
-      exitTime,
-      customPricing ?? settings.pricing
-    );
+    // Se o operador editou o valor manualmente, usa esse; senão calcula.
+    const amountPaid = overrideAmount != null
+      ? overrideAmount
+      : calculateParkingFee(new Date(target.entryTime), exitTime, customPricing ?? settings.pricing);
 
     if (hasDB()) {
       const updated = await dbUpdateVehicleExit(vehicleId, exitTime.toISOString(), amountPaid);
