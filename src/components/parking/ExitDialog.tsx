@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PlateInput } from './PlateInput';
 import { PlateDisplay } from './PlateDisplay';
 import { Vehicle, PricingSettings, ParkingSettings, PriceModule } from '@/types/parking';
 import { formatDateTime, formatDuration, formatCurrency, calculateParkingFee } from '@/lib/parking-utils';
 import { printHtml, buildExitReceiptHtml } from '@/lib/print';
 import { usePriceModules } from '@/hooks/usePriceModules';
-import { LogOut, Printer, Check, Clock, DollarSign, Search, CheckCircle2, Tag } from 'lucide-react';
+import { useLocalStorage } from '@/hooks/useLocalStorage';
+import { LogOut, Printer, Check, Clock, DollarSign, Search, Tag } from 'lucide-react';
 
 interface ExitDialogProps {
   open: boolean;
@@ -36,6 +37,14 @@ export function ExitDialog({
   const [submitting, setSubmitting] = useState(false);
   const [tick, setTick] = useState(0);
   const { modules } = usePriceModules();
+  // Lembra a última tarifa escolhida entre saídas ('padrao' ou id do módulo).
+  const [lastTariffId, setLastTariffId] = useLocalStorage<string>('parking_last_tariff', 'padrao');
+
+  const handleSelectTariff = (id: string) => {
+    const mod = id === 'padrao' ? null : (modules.find(m => m.id === id) ?? null);
+    setSelectedModule(mod);
+    setLastTariffId(id);
+  };
 
   // Tick a cada 30s para atualizar duração e preço
   useEffect(() => {
@@ -65,6 +74,17 @@ export function ExitDialog({
       setExitedVehicle(null);
     }
   }, [open, preSelectedVehicle]);
+
+  // Ao abrir com um veículo (ou quando os módulos carregam), aplica a última
+  // tarifa que o operador usou.
+  useEffect(() => {
+    if (!open || !foundVehicle) return;
+    const mod = lastTariffId === 'padrao'
+      ? null
+      : (modules.find(m => m.id === lastTariffId) ?? null);
+    setSelectedModule(mod);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, foundVehicle, modules]);
 
   const handleSearch = () => {
     const v = findVehicle(plate);
@@ -101,58 +121,6 @@ export function ExitDialog({
       settings.print,
     );
   };
-
-  // ── Tariff card component ──────────────────────────────────────────
-  const TariffCard = ({
-    label,
-    description,
-    p,
-    active,
-    isSpecial,
-    onClick,
-  }: {
-    label: string;
-    description?: string;
-    p: PricingSettings;
-    active: boolean;
-    isSpecial?: boolean;
-    onClick: () => void;
-  }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
-        active
-          ? 'border-primary bg-primary/5 shadow-sm'
-          : 'border-border hover:border-primary/40 bg-card'
-      }`}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-sm">{label}</span>
-            {isSpecial && (
-              <Badge variant="secondary" className="text-xs py-0">Especial</Badge>
-            )}
-            {active && (
-              <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
-            )}
-          </div>
-          {description && (
-            <p className="text-xs text-muted-foreground mt-0.5 truncate">{description}</p>
-          )}
-          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground">
-            <span>1ª hora: <strong className="text-foreground">{formatCurrency(p.firstHourPrice)}</strong></span>
-            <span>Adic.: <strong className="text-foreground">{formatCurrency(p.additionalHourPrice)}</strong></span>
-            <span>Máx.: <strong className="text-foreground">{formatCurrency(p.dailyMaxPrice)}</strong></span>
-            {p.toleranceMinutes > 0 && (
-              <span>Tolerância: <strong className="text-foreground">{p.toleranceMinutes}min</strong></span>
-            )}
-          </div>
-        </div>
-      </div>
-    </button>
-  );
 
   return (
     <Dialog open={open} onOpenChange={() => onOpenChange(false)}>
@@ -216,24 +184,28 @@ export function ExitDialog({
                     <Tag className="w-3.5 h-3.5" />
                     Tabela de Preços
                   </label>
-                  <div className="space-y-2">
-                    <TariffCard
-                      label="Tarifa Padrão"
-                      p={pricing}
-                      active={selectedModule === null}
-                      onClick={() => setSelectedModule(null)}
-                    />
-                    {modules.map(m => (
-                      <TariffCard
-                        key={m.id}
-                        label={m.name}
-                        description={m.description}
-                        p={m.pricing}
-                        active={selectedModule?.id === m.id}
-                        isSpecial
-                        onClick={() => setSelectedModule(m)}
-                      />
-                    ))}
+                  <Select value={selectedModule?.id ?? 'padrao'} onValueChange={handleSelectTariff}>
+                    <SelectTrigger className="h-11">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="padrao">Tarifa Padrão</SelectItem>
+                      {modules.map(m => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.name}{m.description ? ` — ${m.description}` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {/* Resumo compacto da tarifa selecionada */}
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-2 text-xs text-muted-foreground">
+                    <span>1ª hora: <strong className="text-foreground">{formatCurrency(activePricing.firstHourPrice)}</strong></span>
+                    <span>Adic.: <strong className="text-foreground">{formatCurrency(activePricing.additionalHourPrice)}</strong></span>
+                    <span>Máx.: <strong className="text-foreground">{formatCurrency(activePricing.dailyMaxPrice)}</strong></span>
+                    {activePricing.toleranceMinutes > 0 && (
+                      <span>Tolerância: <strong className="text-foreground">{activePricing.toleranceMinutes}min</strong></span>
+                    )}
                   </div>
                 </div>
 
