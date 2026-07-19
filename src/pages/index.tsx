@@ -149,6 +149,7 @@ const Index = () => {
                 title="Faturamento Hoje"
                 value={formatCurrency(stats.todayRevenue)}
                 icon={DollarSign}
+                hideable
               />
               <StatCard
                 title="Veículos Hoje"
