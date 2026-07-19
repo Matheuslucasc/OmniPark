@@ -37,21 +37,35 @@ if not defined PYTHON (
 echo Python encontrado: %PYTHON%
 echo.
 
-echo [1/4] Criando ambiente isolado (venv)...
+echo [1/5] Criando ambiente isolado (venv)...
 %PYTHON% -m venv venv
 if errorlevel 1 goto :erro
 
-echo [2/4] Instalando dependencias (demora alguns minutos, ~2 GB de download)...
+echo [2/5] Instalando dependencias (demora alguns minutos, ~2 GB de download)...
 venv\Scripts\python -m pip install --upgrade pip --quiet
 venv\Scripts\python -m pip install -r requirements.txt
 if errorlevel 1 goto :erro
 
-echo [3/4] Baixando o modelo de OCR...
+echo [3/5] Baixando o modelo de OCR...
 venv\Scripts\python -c "from fast_plate_ocr import LicensePlateRecognizer; LicensePlateRecognizer('cct-s-v2-global-model', device='cpu'); print('Modelo de OCR pronto.')"
 if errorlevel 1 goto :erro
 
-echo [4/4] Criando arquivo de configuracao...
+echo [4/5] Criando arquivos de configuracao...
 if not exist .env copy .env.example .env >nul
+if not exist mediamtx md mediamtx
+if not exist mediamtx\omni.yml if exist mediamtx\omni.yml.example copy mediamtx\omni.yml.example mediamtx\omni.yml >nul
+
+echo [5/5] Baixando o proxy de camera (MediaMTX)...
+if exist mediamtx\mediamtx.exe (
+    echo    MediaMTX ja presente, ok.
+) else (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $u='https://github.com/bluenviron/mediamtx/releases/download/v1.19.2/mediamtx_v1.19.2_windows_amd64.zip'; $z=Join-Path $env:TEMP 'mmtx.zip'; Invoke-WebRequest $u -OutFile $z; Expand-Archive $z 'mediamtx' -Force; Remove-Item $z; Write-Host '   MediaMTX baixado.'"
+    if errorlevel 1 (
+        echo    [AVISO] Nao consegui baixar o MediaMTX agora. Ele SO e necessario
+        echo    se a sua camera nao abrir direto no leitor. Se precisar, rode o
+        echo    instalar.bat de novo com internet, ou veja INSTALACAO.md.
+    )
+)
 
 echo.
 echo ==============================================
@@ -60,7 +74,13 @@ echo.
 echo   1. Edite o arquivo .env com o Bloco de Notas:
 echo      - OMNIPARK_API_URL (endereco do seu site no Vercel)
 echo      - OMNIPARK_API_SECRET (a mesma chave do Vercel)
-echo   2. Cadastre a camera na aba Cameras do site
+echo   2. Escolha a camera:
+echo      - Camera comum: cadastre na aba Cameras do site e deixe
+echo        CAMERA_URL vazio no .env.
+echo      - Camera que nao abre direto (ex.: chip HI/ONVIF generica):
+echo        edite mediamtx\omni.yml com a URL da sua camera e ponha
+echo        CAMERA_URL=rtsp://127.0.0.1:8554/cam no .env.
+echo        (Detalhes na secao "proxy MediaMTX" do INSTALACAO.md.)
 echo   3. Rode: iniciar_leitor.bat
 echo ==============================================
 pause

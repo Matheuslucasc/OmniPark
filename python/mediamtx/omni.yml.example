@@ -1,0 +1,33 @@
+# Config do MediaMTX para o leitor OmniPark.
+# Copie para omni.yml e ajuste o "source:" com a URL real da SUA câmera.
+#
+# Para que serve: algumas câmeras IP baratas falam RTSP fora do padrão e o
+# OpenCV/ffmpeg do leitor NÃO consegue abrir direto. O MediaMTX puxa da câmera
+# com um cliente mais tolerante e republica um stream limpo em
+# rtsp://127.0.0.1:8554/cam, que o leitor lê sem problema.
+# No .env do leitor, deixe: CAMERA_URL=rtsp://127.0.0.1:8554/cam
+
+logLevel: info
+rtspAddress: :8554
+rtmp: false
+hls: false
+webrtc: false
+srt: false
+moq: no      # desliga o MoQ (senão gera auto.crt/auto.key à toa)
+# API ligada (só localhost) para o leitor apontar o proxy à câmera do site
+# quando USAR_PROXY=true no .env. Sem isso, o site não troca a câmera.
+api: yes
+apiAddress: 127.0.0.1:9997
+
+paths:
+  cam:
+    # >>> Troque pela URL RTSP da sua câmera (usuário/senha/IP/caminho). <<<
+    # Se a senha tiver caractere especial, use URL-encode (ex.: @ = %40).
+    source: rtsp://usuario:senha@192.168.1.100:554/onvif1
+    # Transporte usado para LER a câmera:
+    #   udp        -> funciona nessas câmeras genéricas fora do padrão
+    #   tcp        -> câmeras que exigem TCP
+    #   automatic  -> tenta sozinho (padrão)
+    rtspTransport: udp
+    # Conecta na câmera assim que o MediaMTX sobe (não espera um leitor pedir).
+    sourceOnDemand: false

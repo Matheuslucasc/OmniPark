@@ -114,6 +114,33 @@ CREATE INDEX IF NOT EXISTS idx_plate_reads_plate     ON plate_reads (plate);
 CREATE INDEX IF NOT EXISTS idx_plate_reads_read_at   ON plate_reads (read_at DESC);
 CREATE INDEX IF NOT EXISTS idx_plate_reads_processed ON plate_reads (processed);
 
+-- ── Realtime da plate_reads ────────────────────────────────────────────────
+-- O site escuta os INSERTs desta tabela em tempo real para preencher a placa.
+-- Duas coisas são necessárias e SÓ AS DUAS JUNTAS fazem o site atualizar:
+--   1) a tabela na publicação supabase_realtime (o bloco abaixo, idempotente);
+--   2) RLS habilitado COM policy de SELECT para o anon — o Realtime usa o RLS
+--      para autorizar a entrega; com RLS desligado ele NÃO entrega os eventos,
+--      mesmo o anon conseguindo ler por REST. (Testado: sem isto, evento não
+--      chega no site.)
+-- A API grava com a CHAVE ANON, por isso também há policy de INSERT — sem ela,
+-- ligar o RLS quebraria a gravação.
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE plate_reads;
+EXCEPTION WHEN duplicate_object THEN
+  NULL;  -- já estava na publicação
+END $$;
+
+ALTER TABLE plate_reads ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "plate_reads select publico" ON plate_reads;
+CREATE POLICY "plate_reads select publico"
+  ON plate_reads FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "plate_reads insert publico" ON plate_reads;
+CREATE POLICY "plate_reads insert publico"
+  ON plate_reads FOR INSERT TO anon, authenticated WITH CHECK (true);
+
 -- ============================================================
 -- Tabela: plate_corrections
 -- Guarda o que o OCR leu vs. a placa que o operador confirmou.

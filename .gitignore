@@ -8,6 +8,15 @@ python/venv/
 python/__pycache__/
 python/.env
 
+# MediaMTX (proxy da câmera): binário grande + config com senha ficam fora do
+# git. Versionado só o omni.yml.example.
+python/mediamtx/mediamtx.exe
+python/mediamtx/omni.yml
+python/mediamtx/*.log
+# Certificados que o MediaMTX gera no cwd (python/) — não versionar
+python/auto.crt
+python/auto.key
+
 # Pacote de distribuição do leitor
 OmniPark-Leitor.zip
 _dist/

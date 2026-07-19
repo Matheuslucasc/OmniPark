@@ -20,6 +20,7 @@ Rodar:     iniciar_leitor.bat  (ou: python leitor_placas.py)
 import base64
 import os
 import sys
+import threading
 import time
 from collections import Counter
 from pathlib import Path
@@ -43,12 +44,30 @@ CAMERA_URL    = os.getenv("CAMERA_URL", "").strip()
 CAMERA_API_URL = API_URL.replace("/plate-read", "/active-camera")
 # De quanto em quanto tempo checar se a câmera ativa mudou no site (segundos).
 CHECAR_CAMERA_S = float(os.getenv("CHECAR_CAMERA_S", "15"))
+# Roteia a câmera ATIVA do site pelo proxy MediaMTX. Necessário para câmeras que
+# não abrem direto no OpenCV (RTSP fora do padrão). Requer o MediaMTX rodando
+# com "api: yes" (o iniciar_leitor.bat já sobe). Assim, trocar a câmera no site
+# troca a câmera de leitura automaticamente, sem editar arquivos no PC.
+USAR_PROXY      = os.getenv("USAR_PROXY", "false").lower() == "true"
+# De onde o leitor lê quando usa o proxy, e a API do MediaMTX para reconfigurá-lo.
+PROXY_URL       = os.getenv("PROXY_URL",   "rtsp://127.0.0.1:8554/cam")
+MEDIAMTX_API    = os.getenv("MEDIAMTX_API", "http://127.0.0.1:9997")
+# Transporte que o MediaMTX usa para LER a câmera. As câmeras genéricas fora do
+# padrão pedem "udp"; "automatic" tenta udp e depois tcp; "tcp" força TCP.
+PROXY_TRANSPORT = os.getenv("PROXY_TRANSPORT", "udp")
+# Nome do path no MediaMTX (derivado da PROXY_URL: .../cam -> "cam").
+PROXY_PATH      = PROXY_URL.rstrip("/").rsplit("/", 1)[-1]
 YOLO_MODEL    = os.getenv("YOLO_MODEL",          str(Path(__file__).parent / "license_plate_detector.pt"))
 CONFIANCA_MIN = float(os.getenv("CONFIANCA_MIN", "0.35"))  # confiança mínima do YOLO
+# Tamanho de entrada do YOLO. Menor = mais rápido e fluido, com leve perda de
+# alcance em placas distantes. 640 = padrão do modelo; 512 = bom equilíbrio.
+IMGSZ         = int(os.getenv("IMGSZ",           "512"))
 CONF_OCR_MIN  = float(os.getenv("CONF_OCR_MIN",  "0.80"))  # confiança mínima do OCR
 VOTOS_MIN     = int(os.getenv("VOTOS_MIN",       "4"))     # leituras iguais p/ confirmar
 COOLDOWN_S    = float(os.getenv("COOLDOWN_S",    "30"))    # seg. fora da imagem p/ liberar
-PULAR_FRAMES  = int(os.getenv("PULAR_FRAMES",    "2"))     # processa 1 a cada N frames
+PULAR_FRAMES  = int(os.getenv("PULAR_FRAMES",    "1"))     # processa 1 a cada N frames
+                                                           # (1 = todos; a captura em
+                                                           # thread já descarta os atrasados)
 MOSTRAR_VIDEO = os.getenv("MOSTRAR_VIDEO",       "true").lower() == "true"
 MARGEM_PCT    = float(os.getenv("MARGEM_PCT",    "0.08"))  # margem ao redor da placa
 # Modelo de OCR: "cct-s-v2-global-model" (mais preciso) ou
@@ -174,6 +193,22 @@ def obter_camera_ativa() -> tuple[str, int | None, str] | None:
         return None
 
 
+def configurar_proxy(url: str) -> bool:
+    """Aponta o proxy MediaMTX para a URL da câmera (via API), para o leitor
+    poder ler QUALQUER câmera pelo localhost. Retorna True se deu certo."""
+    endpoint = f"{MEDIAMTX_API}/v3/config/paths/patch/{PROXY_PATH}"
+    payload = {"source": url, "rtspTransport": PROXY_TRANSPORT, "sourceOnDemand": False}
+    try:
+        r = requests.patch(endpoint, json=payload, timeout=5)
+        if r.status_code == 200:
+            print(f"  Proxy apontado para a câmera ({PROXY_TRANSPORT}).")
+            return True
+        print(f"  ✗ MediaMTX API {r.status_code}: {r.text[:150]}")
+    except requests.exceptions.RequestException:
+        print(f"  ✗ Sem conexão com o MediaMTX ({MEDIAMTX_API}). Ele está rodando?")
+    return False
+
+
 def resolver_fonte() -> tuple[str, int | None, str]:
     """Decide de onde capturar. Fica tentando até conseguir uma fonte válida.
 
@@ -192,9 +227,89 @@ def resolver_fonte() -> tuple[str, int | None, str]:
         time.sleep(10)
 
 
+class CameraStream:
+    """Captura a câmera em uma thread e mantém só o frame MAIS RECENTE,
+    descartando os atrasados.
+
+    Sem isto, o loop de processamento (YOLO ~230ms/frame no CPU) é mais lento
+    que a câmera (15 fps) e os frames se acumulam no buffer — a imagem exibida
+    vai ficando cada vez mais atrasada. Com a captura em thread, o YOLO sempre
+    pega o frame atual e a latência para de crescer.
+
+    Delega get/set/isOpened/release para o VideoCapture, então é um substituto
+    direto dele nos trechos de câmera ao vivo.
+    """
+
+    def __init__(self, cap: "cv2.VideoCapture"):
+        self._cap = cap
+        self._lock = threading.Lock()
+        self._frame = None
+        self._novo = False
+        self._seq = 0
+        self._rodando = True
+        self._t = threading.Thread(target=self._loop, daemon=True, name="captura")
+        self._t.start()
+
+    def _loop(self):
+        while self._rodando:
+            ok, fr = self._cap.read()
+            if not ok:
+                self._rodando = False
+                break
+            with self._lock:
+                self._frame = fr
+                self._novo = True
+                self._seq += 1
+
+    def snapshot(self):
+        """Retorna (seq, frame) do frame mais recente SEM consumi-lo. Vários
+        leitores (worker de detecção e loop de exibição) podem chamar em paralelo;
+        `seq` muda a cada novo frame, para o worker não reprocessar o mesmo."""
+        with self._lock:
+            return self._seq, self._frame
+
+    def read(self):
+        # Espera o próximo frame novo (até ~5s). Retorna sempre o mais recente;
+        # os frames capturados nesse meio-tempo são descartados de propósito.
+        for _ in range(1000):
+            with self._lock:
+                if self._novo:
+                    self._novo = False
+                    return True, self._frame
+            if not self._rodando:
+                return False, None
+            time.sleep(0.005)
+        return False, None
+
+    def isOpened(self):
+        return self._rodando and self._cap.isOpened()
+
+    def get(self, prop):
+        return self._cap.get(prop)
+
+    def set(self, prop, val):
+        return self._cap.set(prop, val)
+
+    def release(self):
+        self._rodando = False
+        self._t.join(timeout=1.0)
+        self._cap.release()
+
+
 def abrir_camera(url: str):
     src = int(url) if url.isdigit() else url
-    cap = cv2.VideoCapture(src)
+    if isinstance(src, str) and src.lower().startswith("rtsp"):
+        # Força RTSP por TCP (evita frames corrompidos/travas) e usa o backend
+        # FFMPEG explicitamente. Precisa ser setado ANTES de abrir o stream.
+        # Câmeras IP fora do padrão devem ser lidas via o proxy MediaMTX
+        # (rtsp://127.0.0.1:8554/cam) — ver mediamtx/omni.yml.
+        # fflags/nobuffer + low_delay + reorder_queue_size=0: reduzem o buffer
+        # do ffmpeg para o vídeo chegar o mais próximo possível do tempo real.
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+            "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|reorder_queue_size;0")
+        cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG)
+    else:
+        cap = cv2.VideoCapture(src)
     if not cap.isOpened():
         raise RuntimeError(f"Não abriu a câmera: {url}")
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -205,123 +320,223 @@ def abrir_camera(url: str):
     return cap
 
 
+class CtxDeteccao:
+    """Estado da votação/anti-duplicação, mantido entre os frames."""
+
+    def __init__(self):
+        self.votos: Counter[str] = Counter()
+        self.ultimo_voto = 0.0
+        self.ultimo_aviso = 0.0
+        self.bloqueadas: dict[str, float] = {}  # placa enviada -> última vez vista
+
+
+def _desenhar(frame, desenhos):
+    """Desenha as caixas/rótulos (x1,y1,x2,y2,cor,rotulo) sobre o frame."""
+    for x1, y1, x2, y2, cor, rotulo in desenhos:
+        cv2.rectangle(frame, (x1, y1), (x2, y2), cor, 2)
+        cv2.putText(frame, rotulo, (x1, max(20, y1 - 8)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, cor, 2)
+
+
+def processar_deteccoes(frame, model, ocr, camera_id, ctx: CtxDeteccao):
+    """Roda YOLO+OCR no frame, aplica votação/anti-duplicação e envia as placas
+    confirmadas. Retorna as caixas a desenhar: (x1,y1,x2,y2,cor,rotulo)."""
+    agora = time.time()
+    # Sem leitura há 2s: zera a votação (o carro já passou).
+    if ctx.votos and agora - ctx.ultimo_voto > 2.0:
+        ctx.votos.clear()
+
+    desenhos = []
+    resultados = model(frame, conf=CONFIANCA_MIN, imgsz=IMGSZ, verbose=False)
+    for box in resultados[0].boxes:
+        recorte = recortar_placa(frame, box)
+
+        # Placa detectada mas pequena: avisa (no máximo a cada 3s) para o
+        # operador aproximar a câmera.
+        larg = recorte.shape[1] if recorte.size else 0
+        if 0 < larg < MIN_LARGURA and agora - ctx.ultimo_aviso > 3.0:
+            print(f"  placa detectada, porém pequena ({larg}px < {MIN_LARGURA}px) "
+                  "— aproxime a câmera para ler com segurança")
+            ctx.ultimo_aviso = agora
+
+        placa, conf_ocr = ler_placa(ocr, recorte)
+
+        x1, y1, x2, y2 = map(int, box.xyxy[0])
+        cor = (0, 200, 0) if placa else (0, 165, 255)
+        rotulo = f"{formatar(placa)} {conf_ocr:.0%}" if placa else "placa"
+        desenhos.append((x1, y1, x2, y2, cor, rotulo))
+
+        if not placa or conf_ocr < CONF_OCR_MIN:
+            continue
+
+        # Anti-duplicação: placa já enviada fica bloqueada enquanto o carro
+        # estiver na frente da câmera (mesmo parado).
+        if placa in ctx.bloqueadas:
+            if agora - ctx.bloqueadas[placa] < COOLDOWN_S:
+                ctx.bloqueadas[placa] = agora  # ainda vendo: renova
+                continue
+            del ctx.bloqueadas[placa]  # sumiu tempo suficiente: libera
+
+        ctx.votos[placa] += 1
+        ctx.ultimo_voto = agora
+        if ctx.votos[placa] < VOTOS_MIN:
+            continue
+
+        # Placa confirmada pela votação: envia.
+        ctx.votos.clear()
+        ctx.bloqueadas[placa] = agora
+        print(f"\n[CONFIRMADA] {formatar(placa)} conf={conf_ocr:.0%}")
+        enviar_para_sistema(placa, conf_ocr, imagem_para_base64(recorte), camera_id)
+
+    return desenhos
+
+
+def _loop_arquivo(cap, model, ocr, camera_id, ctx, fps) -> bool:
+    """Vídeo de arquivo (teste): processa os frames na velocidade real.
+    Retorna True se o usuário apertou Q."""
+    n_frame = 0
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # recomeça o vídeo
+            continue
+        n_frame += 1
+        if n_frame % PULAR_FRAMES == 0:
+            desenhos = processar_deteccoes(frame, model, ocr, camera_id, ctx)
+            if MOSTRAR_VIDEO:
+                _desenhar(frame, desenhos)
+        if MOSTRAR_VIDEO:
+            cv2.imshow("OmniPark — Câmera (Q para sair)", frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                cv2.destroyAllWindows()
+                return True
+        time.sleep(1 / fps)  # simula a velocidade real da câmera
+    return False
+
+
+def _loop_ao_vivo(cap, model, ocr, camera_id, ctx, fonte_site) -> bool:
+    """Câmera ao vivo: a DETECÇÃO roda num worker (no ritmo do YOLO) e a EXIBIÇÃO
+    roda no loop principal em ~tempo real, mostrando o frame mais novo com as
+    últimas caixas. Assim o vídeo fica fluido mesmo com o YOLO lento no CPU.
+    `fonte_site` é a URL real da câmera ativa (para detectar troca no site).
+    Retorna True se o usuário apertou Q."""
+    estado = {"desenhos": [], "lock": threading.Lock(), "rodar": True}
+
+    def worker():
+        ultimo_seq = -1
+        while estado["rodar"] and cap.isOpened():
+            seq, frame = cap.snapshot()
+            if frame is None or seq == ultimo_seq:
+                time.sleep(0.005)  # nada novo ainda
+                continue
+            ultimo_seq = seq
+            desenhos = processar_deteccoes(frame, model, ocr, camera_id, ctx)
+            with estado["lock"]:
+                estado["desenhos"] = desenhos
+
+    t = threading.Thread(target=worker, daemon=True, name="deteccao")
+    t.start()
+
+    ultima_checagem = time.time()
+    sair = False
+    try:
+        while cap.isOpened():
+            # Verifica periodicamente se a câmera ativa mudou no site.
+            if not CAMERA_URL and time.time() - ultima_checagem > CHECAR_CAMERA_S:
+                ultima_checagem = time.time()
+                atual = obter_camera_ativa()
+                if atual and atual[0] != fonte_site:
+                    print(f"\nCâmera ativa trocada no site → {atual[2]}. Reconectando...\n")
+                    break
+
+            seq, frame = cap.snapshot()
+            if frame is None:
+                time.sleep(0.01)
+                continue
+
+            if MOSTRAR_VIDEO:
+                vis = frame.copy()
+                with estado["lock"]:
+                    desenhos = list(estado["desenhos"])
+                _desenhar(vis, desenhos)
+                cv2.imshow("OmniPark — Câmera (Q para sair)", vis)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    sair = True
+                    break
+            else:
+                time.sleep(0.03)  # sem janela: só mantém o worker vivo
+    finally:
+        estado["rodar"] = False
+        t.join(timeout=1.0)
+        if sair:
+            cv2.destroyAllWindows()
+    return sair
+
+
 def main():
     print("=" * 55)
     print("  OmniPark — Leitor de Placas")
     print("=" * 55)
     print(f"  API    : {API_URL}")
     print(f"  Câmera : {CAMERA_URL or 'câmera ativa do site (via API)'}")
-    print(f"  Modelo : {YOLO_MODEL}")
+    print(f"  Modelo : {YOLO_MODEL}  (imgsz={IMGSZ})")
     print("=" * 55)
+
+    # Deixa ~2 núcleos livres para a decodificação/exibição do vídeo — assim o
+    # YOLO não monopoliza a CPU e a imagem não trava durante a inferência.
+    try:
+        import torch
+        torch.set_num_threads(max(2, (os.cpu_count() or 4) - 2))
+    except Exception:
+        pass
 
     model = YOLO(YOLO_MODEL)
     print("  Modelo YOLO carregado.")
     ocr = carregar_ocr()
     print("  Modelo de OCR carregado.\n")
 
-    votos: Counter[str] = Counter()
-    ultimo_voto = 0.0
-    ultimo_aviso = 0.0
-    bloqueadas: dict[str, float] = {}  # placa enviada -> última vez vista
-    n_frame = 0
-
     while True:
-        fonte, camera_id, nome = resolver_fonte()
+        # fonte_site = URL/valor decidido (fixo do .env ou câmera ativa do site).
+        fonte_site, camera_id, nome = resolver_fonte()
+
+        # Modo proxy: aponta o MediaMTX para a câmera do site e lê do localhost.
+        # Assim o site controla a câmera e o proxy trata qualquer RTSP. Só o RTSP
+        # passa pelo proxy — HTTP/MJPEG (ex.: DroidCam), webcam e vídeo o OpenCV
+        # abre direto (o MediaMTX não lê MJPEG-over-HTTP).
+        if USAR_PROXY and fonte_site.lower().startswith("rtsp") \
+                and fonte_site != PROXY_URL:
+            if not configurar_proxy(fonte_site):
+                print("  Não consegui configurar o proxy. Tentando em 5s...\n")
+                time.sleep(5)
+                continue
+            fonte_leitura = PROXY_URL
+        else:
+            fonte_leitura = fonte_site
+
         # Vídeo de arquivo (teste) roda em loop na velocidade real.
-        eh_arquivo = not fonte.isdigit() and \
-            not fonte.lower().startswith(("rtsp", "http"))
+        eh_arquivo = not fonte_leitura.isdigit() and \
+            not fonte_leitura.lower().startswith(("rtsp", "http"))
         try:
-            cap = abrir_camera(fonte)
+            cap = abrir_camera(fonte_leitura)
+            # Câmera ao vivo: captura em thread mantendo só o frame mais novo
+            # (baixa latência). Vídeo de arquivo: leitura direta (velocidade real).
+            if not eh_arquivo:
+                cap = CameraStream(cap)
             fps = cap.get(cv2.CAP_PROP_FPS) or 30
-            print(f"Câmera conectada: {nome} ({fonte})\n")
+            print(f"Câmera conectada: {nome} ({fonte_site})\n")
         except RuntimeError as e:
             print(f"Erro: {e}. Tentando em 5s...")
             time.sleep(5)
             continue
 
-        ultima_checagem = time.time()
-
-        while cap.isOpened():
-            # Verifica periodicamente se a câmera ativa mudou no site.
-            if not CAMERA_URL and time.time() - ultima_checagem > CHECAR_CAMERA_S:
-                ultima_checagem = time.time()
-                atual = obter_camera_ativa()
-                if atual and atual[0] != fonte:
-                    print(f"\nCâmera ativa trocada no site → {atual[2]}. Reconectando...\n")
-                    break
-
-            ret, frame = cap.read()
-            if not ret:
-                if eh_arquivo:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    continue
-                print("Frame perdido — reconectando...")
-                break
-
-            n_frame += 1
-            agora = time.time()
-
-            if n_frame % PULAR_FRAMES == 0:
-                # Sem leitura há 2s: zera a votação (o carro já passou).
-                if votos and agora - ultimo_voto > 2.0:
-                    votos.clear()
-
-                resultados = model(frame, conf=CONFIANCA_MIN, verbose=False)
-                for box in resultados[0].boxes:
-                    recorte = recortar_placa(frame, box)
-
-                    # Placa detectada mas pequena: avisa (no máximo a cada 3s)
-                    # para o operador aproximar a câmera.
-                    larg = recorte.shape[1] if recorte.size else 0
-                    if 0 < larg < MIN_LARGURA and agora - ultimo_aviso > 3.0:
-                        print(f"  placa detectada, porém pequena ({larg}px < {MIN_LARGURA}px) "
-                              "— aproxime a câmera para ler com segurança")
-                        ultimo_aviso = agora
-
-                    placa, conf_ocr = ler_placa(ocr, recorte)
-
-                    if MOSTRAR_VIDEO:
-                        x1, y1, x2, y2 = map(int, box.xyxy[0])
-                        cor = (0, 200, 0) if placa else (0, 165, 255)
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), cor, 2)
-                        rotulo = f"{formatar(placa)} {conf_ocr:.0%}" if placa else "placa"
-                        cv2.putText(frame, rotulo, (x1, max(20, y1 - 8)),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, cor, 2)
-
-                    if not placa or conf_ocr < CONF_OCR_MIN:
-                        continue
-
-                    # Anti-duplicação: placa já enviada fica bloqueada enquanto
-                    # o carro estiver na frente da câmera (mesmo parado).
-                    if placa in bloqueadas:
-                        if agora - bloqueadas[placa] < COOLDOWN_S:
-                            bloqueadas[placa] = agora  # ainda vendo: renova
-                            continue
-                        del bloqueadas[placa]  # sumiu tempo suficiente: libera
-
-                    votos[placa] += 1
-                    ultimo_voto = agora
-                    if votos[placa] < VOTOS_MIN:
-                        continue
-
-                    # Placa confirmada pela votação: envia.
-                    votos.clear()
-                    bloqueadas[placa] = agora
-                    print(f"\n[CONFIRMADA] {formatar(placa)} conf={conf_ocr:.0%}")
-                    enviar_para_sistema(placa, conf_ocr, imagem_para_base64(recorte),
-                                        camera_id)
-
-            if MOSTRAR_VIDEO:
-                cv2.imshow("OmniPark — Câmera (Q para sair)", frame)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    cap.release()
-                    cv2.destroyAllWindows()
-                    return
-
-            if eh_arquivo:
-                time.sleep(1 / fps)  # simula a velocidade real da câmera
-
+        ctx = CtxDeteccao()
+        if eh_arquivo:
+            sair = _loop_arquivo(cap, model, ocr, camera_id, ctx, fps)
+        else:
+            sair = _loop_ao_vivo(cap, model, ocr, camera_id, ctx, fonte_site)
         cap.release()
+        if sair:
+            return
         time.sleep(2)
 
 
