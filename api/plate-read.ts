@@ -103,7 +103,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   // ── Configuração Supabase ─────────────────────────────────────────────────
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
-  const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY; // chave de servidor (nunca vai para o navegador) ou, na falta dela, a anon
   if (!supabaseUrl || !supabaseKey) return json({ error: 'Supabase não configurado' }, 500);
 
   // ── Upload da imagem (se enviada) ─────────────────────────────────────────

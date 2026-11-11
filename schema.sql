@@ -3,20 +3,9 @@
 -- Compatível com Vercel Postgres / Supabase / Neon
 -- ============================================================
 
--- !! RODE ESTE BLOCO PRIMEIRO SE VEÍCULOS NÃO ESTÃO SENDO SALVOS !!
--- Garante acesso total às tabelas para usuários autenticados
--- (execute no SQL Editor do Supabase)
---
--- ALTER TABLE vehicles       DISABLE ROW LEVEL SECURITY;
--- ALTER TABLE price_modules   DISABLE ROW LEVEL SECURITY;
--- ALTER TABLE camera_settings DISABLE ROW LEVEL SECURITY;
--- ALTER TABLE plate_reads     DISABLE ROW LEVEL SECURITY;
---
--- OU, se preferir manter RLS, crie as políticas:
--- CREATE POLICY "auth users full access on vehicles"
---   ON vehicles FOR ALL TO authenticated USING (true) WITH CHECK (true);
--- CREATE POLICY "auth users full access on price_modules"
---   ON price_modules FOR ALL TO authenticated USING (true) WITH CHECK (true);
+-- Permissões: NÃO desligue o RLS das tabelas. O acesso é liberado só para
+-- usuários APROVADOS pela seção "SEGURANÇA" no fim deste arquivo. Se algo não
+-- salvar, confira se o usuário está aprovado em profiles (approved = true).
 
 -- Extensão para UUID
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -314,7 +303,142 @@ EXCEPTION WHEN duplicate_object THEN
 END $$;
 
 ALTER TABLE vehicles ENABLE ROW LEVEL SECURITY;
+-- A policy de acesso fica na seção "SEGURANÇA" abaixo (só usuários APROVADOS).
+-- Não recrie aqui uma policy aberta (USING true): ela anularia a proteção.
 
-DROP POLICY IF EXISTS "auth users full access on vehicles" ON vehicles;
-CREATE POLICY "auth users full access on vehicles"
-  ON vehicles FOR ALL TO authenticated USING (true) WITH CHECK (true);
+-- ============================================================
+-- MIGRAÇÃO: numeração de tickets feita pelo BANCO (2026-11)
+-- Antes, cada aparelho calculava "maior nº de hoje + 1" com a lista que tinha
+-- na memória: dois aparelhos ao mesmo tempo (ou um aparelho desatualizado)
+-- podiam gerar o MESMO número, e excluir o último ticket fazia o número ser
+-- reaproveitado. Agora um contador por dia, atualizado de forma atômica,
+-- numera cada entrada: nunca repete e nunca reaproveita. O dia segue o
+-- horário de Brasília. Seguro rodar mais de uma vez; vale a partir de agora
+-- (não renumera tickets antigos — para conferir os antigos, use
+-- sql/conferencia-tickets.sql).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS daily_ticket_counters (
+  dia            DATE    PRIMARY KEY,
+  ultimo_numero  INTEGER NOT NULL
+);
+-- Sem policies: só a função abaixo (SECURITY DEFINER) mexe no contador.
+ALTER TABLE daily_ticket_counters ENABLE ROW LEVEL SECURITY;
+
+CREATE OR REPLACE FUNCTION public.assign_daily_ticket()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_dia    DATE        := (NEW.entry_time AT TIME ZONE 'America/Sao_Paulo')::date;
+  v_inicio TIMESTAMPTZ := v_dia::timestamp AT TIME ZONE 'America/Sao_Paulo';
+  v_max    INTEGER;
+BEGIN
+  -- Maior nº já usado no dia (cobre a 1ª execução no meio de um dia já numerado)
+  SELECT COALESCE(MAX(daily_ticket), 0) INTO v_max
+    FROM vehicles
+   WHERE entry_time >= v_inicio AND entry_time < v_inicio + INTERVAL '1 day';
+
+  -- Incremento atômico: entradas simultâneas esperam a vez na linha do dia
+  INSERT INTO daily_ticket_counters AS c (dia, ultimo_numero)
+       VALUES (v_dia, v_max + 1)
+  ON CONFLICT (dia) DO UPDATE
+       SET ultimo_numero = GREATEST(c.ultimo_numero, v_max) + 1
+  RETURNING ultimo_numero INTO NEW.daily_ticket;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_vehicles_daily_ticket ON vehicles;
+CREATE TRIGGER trg_vehicles_daily_ticket
+  BEFORE INSERT ON vehicles
+  FOR EACH ROW EXECUTE FUNCTION public.assign_daily_ticket();
+
+-- ============================================================
+-- MIGRAÇÃO: uma placa só pode ter UM bilhete ativo
+-- Impede entrada duplicada quando dois aparelhos registram a mesma placa ao
+-- mesmo tempo. Se já houver duplicadas no pátio, só avisa (resolva com a
+-- consulta 4 de sql/conferencia-tickets.sql e rode de novo).
+-- ============================================================
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM vehicles WHERE status = 'parked' GROUP BY plate HAVING COUNT(*) > 1) THEN
+    RAISE NOTICE 'ATENCAO: ha placas com mais de um bilhete ativo. Resolva e rode este bloco de novo.';
+  ELSE
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_vehicles_plate_parked ON vehicles (plate) WHERE status = 'parked';
+  END IF;
+END $$;
+
+-- ============================================================
+-- SEGURANÇA: acesso só para usuários APROVADOS
+-- Antes, qualquer pessoa que criasse uma conta (mesmo sem aprovação) já
+-- conseguia ler/alterar veículos e faturamento direto pela API, porque a
+-- aprovação só era checada na tela. Agora o próprio banco exige aprovação.
+-- Remove TODAS as policies antigas destas tabelas (inclusive abertas criadas
+-- à mão) e cria uma única: usuários aprovados têm acesso total.
+-- Seguro rodar mais de uma vez.
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.is_approved_user()
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND approved);
+$$;
+REVOKE ALL ON FUNCTION public.is_approved_user() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_approved_user() TO authenticated;
+
+DO $$
+DECLARE
+  t TEXT;
+  p RECORD;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['vehicles', 'parking_settings', 'price_modules', 'plate_corrections'] LOOP
+    CONTINUE WHEN to_regclass('public.' || t) IS NULL;
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
+    FOR p IN SELECT policyname FROM pg_policies WHERE schemaname = 'public' AND tablename = t LOOP
+      EXECUTE format('DROP POLICY %I ON public.%I', p.policyname, t);
+    END LOOP;
+    EXECUTE format(
+      'CREATE POLICY "usuarios aprovados" ON public.%I FOR ALL TO authenticated '
+      'USING ((SELECT public.is_approved_user())) WITH CHECK ((SELECT public.is_approved_user()))', t);
+  END LOOP;
+END $$;
+
+-- A view dashboard_stats rodava com permissão do dono (ignorava o RLS) e
+-- expunha ocupação e faturamento do dia para qualquer um com a chave pública.
+DO $$
+BEGIN
+  EXECUTE 'ALTER VIEW public.dashboard_stats SET (security_invoker = true)';
+EXCEPTION WHEN others THEN
+  RAISE NOTICE 'dashboard_stats: %', SQLERRM;
+END $$;
+
+-- ------------------------------------------------------------
+-- SEGURANÇA — PARTE 2 (câmeras). Rode SÓ DEPOIS de cadastrar a variável
+-- SUPABASE_SERVICE_ROLE_KEY na Vercel (Settings → Environment Variables,
+-- valor = chave "service_role" em Supabase → Settings → API) e fazer um
+-- redeploy. Sem isso, o leitor Python deixa de achar a câmera ativa.
+-- A tabela guarda usuário/senha das câmeras: hoje qualquer um com a chave
+-- pública do site consegue ler.
+-- ------------------------------------------------------------
+-- DO $$
+-- DECLARE p RECORD;
+-- BEGIN
+--   ALTER TABLE public.camera_settings ENABLE ROW LEVEL SECURITY;
+--   FOR p IN SELECT policyname FROM pg_policies WHERE schemaname = 'public' AND tablename = 'camera_settings' LOOP
+--     EXECUTE format('DROP POLICY %I ON public.camera_settings', p.policyname);
+--   END LOOP;
+--   CREATE POLICY "usuarios aprovados" ON public.camera_settings FOR ALL TO authenticated
+--     USING ((SELECT public.is_approved_user())) WITH CHECK ((SELECT public.is_approved_user()));
+-- END $$;
+
+-- ============================================================
+-- MIGRAÇÃO: preços sincronizados em tempo real entre aparelhos
+-- Ao mudar a tabela de preços (ex.: ligar o valor fixo no início do evento)
+-- em um aparelho, os outros passam a cobrar o novo valor na hora, sem
+-- precisar recarregar a página.
+-- ============================================================
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE parking_settings;
+EXCEPTION WHEN duplicate_object THEN
+  NULL;  -- já estava na publicação
+END $$;
+
+NOTIFY pgrst, 'reload schema';
