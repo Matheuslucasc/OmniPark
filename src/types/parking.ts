@@ -55,7 +55,12 @@ export interface ParkingStats {
   occupiedSpots: number;
   availableSpots: number;
   todayRevenue: number;
-  todayVehicles: number;
+  /** Tickets emitidos hoje (entradas), estejam no pátio ou já tenham saído. */
+  todayEntries: number;
+  /** Das entradas de hoje, quantas ainda estão no pátio. */
+  todayEntriesParked: number;
+  /** Saídas registradas hoje (base do faturamento do dia). */
+  todayExits: number;
 }
 
 export interface HistoryFilters {

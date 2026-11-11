@@ -65,11 +65,24 @@ export function StatCard({
         className
       )}
     >
-      {/* Linha do título: nome + olho + ícone. O valor fica sozinho na linha de
-          baixo, com a largura toda do card (antes era cortado: "R$ 1..."). */}
+      {/* Título + ícone em cima; o valor fica sozinho na linha de baixo, com a
+          largura toda do card (antes era cortado: "R$ 1..."); o botão de
+          ocultar vai na linha do subtítulo para não cortar o título. */}
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-1.5 min-w-0 pt-1">
-          <p className="text-xs sm:text-sm text-muted-foreground font-medium truncate">{title}</p>
+        <p className="text-xs sm:text-sm text-muted-foreground font-medium truncate pt-1 min-w-0">{title}</p>
+        <div className={cn('p-2 rounded-lg shrink-0', iconClasses[variant])}>
+          <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
+        </div>
+      </div>
+      <p
+        className="mt-1 text-xl sm:text-2xl lg:text-xl xl:text-2xl 2xl:text-3xl font-bold tabular-nums whitespace-nowrap overflow-hidden text-ellipsis"
+        title={String(shownValue)}
+      >
+        {shownValue}
+      </p>
+      {(subtitle || hideable) && (
+        <div className="flex items-center justify-between gap-2 mt-1">
+          <p className="text-xs sm:text-sm text-muted-foreground truncate min-w-0">{subtitle}</p>
           {hideable && (
             <button
               type="button"
@@ -84,18 +97,6 @@ export function StatCard({
             </button>
           )}
         </div>
-        <div className={cn('p-2 rounded-lg shrink-0', iconClasses[variant])}>
-          <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
-        </div>
-      </div>
-      <p
-        className="mt-1 text-xl sm:text-2xl lg:text-xl xl:text-2xl 2xl:text-3xl font-bold tabular-nums whitespace-nowrap overflow-hidden text-ellipsis"
-        title={String(shownValue)}
-      >
-        {shownValue}
-      </p>
-      {subtitle && (
-        <p className="text-xs sm:text-sm text-muted-foreground mt-1">{subtitle}</p>
       )}
     </div>
   );

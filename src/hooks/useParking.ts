@@ -136,17 +136,21 @@ export function useParking({ onRemoteEntry }: UseParkingOptions = {}) {
   );
 
   const stats: ParkingStats = useMemo(() => {
+    // Definições únicas usadas em todas as telas:
+    //   entradas = tickets emitidos no dia (pela hora de ENTRADA, qualquer status)
+    //   saídas   = veículos que saíram no dia (pela hora de SAÍDA) → faturamento
     const occupiedSpots = parkedVehicles.length;
     const todayExited = vehicles.filter(
       v => v.status === 'exited' && v.exitTime && isToday(new Date(v.exitTime))
     );
+    const todayEntered = vehicles.filter(v => isToday(new Date(v.entryTime)));
     return {
       occupiedSpots,
-      availableSpots: settings.totalSpots - occupiedSpots,
+      availableSpots: Math.max(0, settings.totalSpots - occupiedSpots),
       todayRevenue: todayExited.reduce((sum, v) => sum + (v.amountPaid || 0), 0),
-      todayVehicles:
-        todayExited.length +
-        parkedVehicles.filter(v => isToday(new Date(v.entryTime))).length,
+      todayEntries: todayEntered.length,
+      todayEntriesParked: todayEntered.filter(v => v.status === 'parked').length,
+      todayExits: todayExited.length,
     };
   }, [vehicles, parkedVehicles, settings.totalSpots]);
 

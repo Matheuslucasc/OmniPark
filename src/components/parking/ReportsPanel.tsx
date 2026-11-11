@@ -452,8 +452,11 @@ export function ReportsPanel({ vehicles }: ReportsPanelProps) {
         <StatTile icon={DollarSign} title="Faturamento" value={formatCurrency(stats.revenue)}>
           <Delta current={stats.revenue} previous={prev.revenue} prevLabel={prevLabel} />
         </StatTile>
-        <StatTile icon={Car} title="Veículos (saídas)" value={String(stats.count)}>
+        <StatTile icon={Car} title="Saídas" value={String(stats.count)}>
           <Delta current={stats.count} previous={prev.count} prevLabel={prevLabel} />
+          <p className="text-xs text-muted-foreground">
+            {stats.entries} {stats.entries === 1 ? 'entrada' : 'entradas'} no mês
+          </p>
         </StatTile>
         <StatTile icon={Receipt} title="Ticket médio" value={formatCurrency(stats.avgTicket)}>
           <Delta current={stats.avgTicket} previous={prev.avgTicket} prevLabel={prevLabel} />

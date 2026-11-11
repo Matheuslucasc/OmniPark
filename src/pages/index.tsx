@@ -230,12 +230,14 @@ const Index = () => {
               <StatCard
                 title="Faturamento Hoje"
                 value={formatCurrency(stats.todayRevenue)}
+                subtitle={`${stats.todayExits} ${stats.todayExits === 1 ? 'saída' : 'saídas'} hoje`}
                 icon={DollarSign}
                 hideable
               />
               <StatCard
-                title="Veículos Hoje"
-                value={stats.todayVehicles}
+                title="Entradas Hoje"
+                value={stats.todayEntries}
+                subtitle={`${stats.todayEntries - stats.todayEntriesParked} saíram · ${stats.todayEntriesParked} no pátio`}
                 icon={Car}
               />
             </div>
@@ -390,7 +392,7 @@ const Index = () => {
                 </div>
               ) : (
                 <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
-                  {parkedVehicles.slice(0, 9).map(vehicle => (
+                  {parkedVehicles.map(vehicle => (
                     <VehicleCard key={vehicle.id} vehicle={vehicle} onExit={handleVehicleExit} onPrint={(v) => { printEntryTicket(v, settings); removePending(v.id); }} />
                   ))}
                 </div>

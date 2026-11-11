@@ -140,9 +140,16 @@ export function HistoryTable({ getHistory, onDelete, settings }: HistoryTablePro
 
       {/* Summary */}
       <div className="flex items-center justify-between p-4 bg-secondary rounded-lg">
-        <div className="flex items-center gap-2">
-          <FileText className="w-5 h-5 text-muted-foreground" />
-          <span className="font-medium">{filteredHistory.length} registros encontrados</span>
+        <div className="flex items-start gap-2">
+          <FileText className="w-5 h-5 text-muted-foreground mt-0.5 shrink-0" />
+          <div>
+            <span className="font-medium">
+              {filteredHistory.length} {filteredHistory.length === 1 ? 'saída encontrada' : 'saídas encontradas'}
+            </span>
+            <p className="text-xs text-muted-foreground">
+              Só veículos que já saíram (as datas filtram pela saída). Os que estão no pátio ficam no Dashboard.
+            </p>
+          </div>
         </div>
         <div className="text-lg font-bold">
           Total: {formatCurrency(totalRevenue)}
