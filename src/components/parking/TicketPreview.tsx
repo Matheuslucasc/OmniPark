@@ -61,8 +61,8 @@ export function TicketPreview({ settings }: TicketPreviewProps) {
             <div className="inline-block border-2 border-black px-4 py-2 font-bold text-xl tracking-[4px]">
               ABC1D23
             </div>
-            <div className="text-[10px] text-gray-500 mt-1">
-              Exemplo de Veículo
+            <div className="mt-2 border-2 border-black rounded px-2 py-1 font-bold text-base uppercase">
+              Civic Preto
             </div>
           </div>
 

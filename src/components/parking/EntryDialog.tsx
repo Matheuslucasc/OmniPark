@@ -209,6 +209,11 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
             </div>
 
             <PlateDisplay plate={confirmedVehicle.plate} size="lg" variant="highlight" />
+            {confirmedVehicle.vehicleName && (
+              <p className="text-lg font-bold text-primary uppercase tracking-wide break-words">
+                {confirmedVehicle.vehicleName}
+              </p>
+            )}
 
             <div className="text-sm text-muted-foreground">
               Entrada: {formatDateTime(confirmedVehicle.entryTime)}

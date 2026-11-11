@@ -39,6 +39,12 @@ export function printHtml(html: string, printSettings: PrintSettings): void {
     .small   { font-size: ${Math.max(fontSize - 2, 8)}pt; color: #555; }
     .total   { font-size: ${fontSize + 6}pt; font-weight: bold; text-align: center;
                margin: 8px 0; padding: 6px; background: #000; color: #fff; }
+    /* Nome/modelo do veículo em destaque (logo abaixo da placa) */
+    .vehicle { font-size: ${fontSize + 6}pt; font-weight: bold; text-align: center;
+               text-transform: uppercase; border: 2px solid #000; border-radius: 4px;
+               padding: 4px 6px; margin: 6px 0 2px; word-break: break-word; }
+    /* Vários tickets num só trabalho de impressão: um por página (corte) */
+    .ticket-break { break-after: page; page-break-after: always; }
   </style>
 </head>
 <body>${html}</body>
@@ -95,6 +101,11 @@ export function printHtml(html: string, printSettings: PrintSettings): void {
 
 // ── Templates de ticket ───────────────────────────────────────────────────────
 
+/** Escapa texto digitado pelo operador antes de colocar no HTML do ticket. */
+function esc(v: string | undefined): string {
+  return (v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+}
+
 export interface EntryTicketData {
   plate: string;
   vehicleName?: string;
@@ -117,18 +128,18 @@ export interface ExitReceiptData extends EntryTicketData {
 
 export function buildEntryTicketHtml(d: EntryTicketData): string {
   return `
-    <div class="center bold large">${d.parkingName}</div>
-    ${d.parkingAddress ? `<div class="center small">${d.parkingAddress}</div>` : ''}
-    ${d.parkingPhone   ? `<div class="center small">Tel: ${d.parkingPhone}</div>` : ''}
+    <div class="center bold large">${esc(d.parkingName)}</div>
+    ${d.parkingAddress ? `<div class="center small">${esc(d.parkingAddress)}</div>` : ''}
+    ${d.parkingPhone   ? `<div class="center small">Tel: ${esc(d.parkingPhone)}</div>` : ''}
     <div class="center small">TICKET DE ENTRADA</div>
     ${d.ticketNumber ? `<div class="center large bold">Nº ${d.ticketNumber}</div>` : ''}
     <div class="divider"></div>
     <div class="center xlarge bold">${d.plate}</div>
-    ${d.vehicleName ? `<div class="center small">${d.vehicleName}</div>` : ''}
+    ${d.vehicleName ? `<div class="vehicle">${esc(d.vehicleName)}</div>` : ''}
     <div class="divider"></div>
     <div class="row"><span>Entrada:</span><span class="bold">${d.entryTime}</span></div>
     ${d.fixedPrice != null ? `<div class="row"><span>Valor (fixo):</span><span class="bold">${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(d.fixedPrice)}</span></div><div class="center small">Pagamento na saída</div>` : ''}
-    ${d.ticketObservation ? `<div class="divider"></div><div class="center small">${d.ticketObservation}</div>` : ''}
+    ${d.ticketObservation ? `<div class="divider"></div><div class="center small">${esc(d.ticketObservation)}</div>` : ''}
     <div class="divider"></div>
     <div class="center small">Guarde este ticket</div>
     ${d.ticketNumber ? `<div class="center small">Ticket Nº ${d.ticketNumber}</div>` : ''}
@@ -139,40 +150,53 @@ export function buildEntryTicketHtml(d: EntryTicketData): string {
 export function buildExitReceiptHtml(d: ExitReceiptData): string {
   const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(d.amountPaid);
   return `
-    <div class="center bold large">${d.parkingName}</div>
-    ${d.parkingAddress ? `<div class="center small">${d.parkingAddress}</div>` : ''}
-    ${d.parkingPhone   ? `<div class="center small">Tel: ${d.parkingPhone}</div>` : ''}
+    <div class="center bold large">${esc(d.parkingName)}</div>
+    ${d.parkingAddress ? `<div class="center small">${esc(d.parkingAddress)}</div>` : ''}
+    ${d.parkingPhone   ? `<div class="center small">Tel: ${esc(d.parkingPhone)}</div>` : ''}
     <div class="center small">COMPROVANTE DE SAÍDA</div>
     ${d.ticketNumber ? `<div class="center large bold">Nº ${d.ticketNumber}</div>` : ''}
     <div class="divider"></div>
     <div class="center xlarge bold">${d.plate}</div>
-    ${d.vehicleName ? `<div class="center small">${d.vehicleName}</div>` : ''}
+    ${d.vehicleName ? `<div class="vehicle">${esc(d.vehicleName)}</div>` : ''}
     <div class="divider"></div>
     <div class="row"><span>Entrada:</span><span class="bold">${d.entryTime}</span></div>
     <div class="row"><span>Saída:</span><span class="bold">${d.exitTime}</span></div>
     <div class="row"><span>Permanência:</span><span class="bold">${d.duration}</span></div>
     <div class="total">TOTAL: ${brl}</div>
-    ${d.ticketObservation ? `<div class="divider"></div><div class="center small">${d.ticketObservation}</div>` : ''}
+    ${d.ticketObservation ? `<div class="divider"></div><div class="center small">${esc(d.ticketObservation)}</div>` : ''}
     <div class="divider"></div>
     <div class="center small">Obrigado pela preferência!</div>
   `;
 }
 
+function entryTicketFor(v: Vehicle, s: ParkingSettings): string {
+  return buildEntryTicketHtml({
+    plate:             v.plate,
+    vehicleName:       v.vehicleName,
+    entryTime:         formatDateTime(v.entryTime),
+    id:                v.id,
+    ticketNumber:      formatTicket(v.dailyTicket),
+    parkingName:       s.parkingName,
+    parkingAddress:    s.parkingAddress,
+    parkingPhone:      s.parkingPhone,
+    ticketObservation: s.ticketObservation,
+    fixedPrice:        s.pricing.chargeMode === 'fixed' ? s.pricing.fixedPrice : undefined,
+  });
+}
+
 /** Imprime (ou reimprime) o ticket de entrada de um veículo — usado em qualquer aparelho. */
 export function printEntryTicket(v: Vehicle, s: ParkingSettings): void {
-  printHtml(
-    buildEntryTicketHtml({
-      plate:             v.plate,
-      vehicleName:       v.vehicleName,
-      entryTime:         formatDateTime(v.entryTime),
-      id:                v.id,
-      ticketNumber:      formatTicket(v.dailyTicket),
-      parkingName:       s.parkingName,
-      parkingAddress:    s.parkingAddress,
-      parkingPhone:      s.parkingPhone,
-      ticketObservation: s.ticketObservation,
-      fixedPrice:        s.pricing.chargeMode === 'fixed' ? s.pricing.fixedPrice : undefined,
-    }),
-    s.print,
-  );
+  printEntryTickets([v], s);
+}
+
+/**
+ * Imprime vários tickets de entrada num único trabalho (uma janela de impressão),
+ * um por página — na térmica, o driver corta entre eles.
+ */
+export function printEntryTickets(vs: Vehicle[], s: ParkingSettings): void {
+  if (vs.length === 0) return;
+  const html = vs
+    .map((v, i) => (i < vs.length - 1 ? `<div class="ticket-break">${entryTicketFor(v, s)}</div>` : entryTicketFor(v, s)))
+    .join('');
+  printHtml(html, s.print);
 }

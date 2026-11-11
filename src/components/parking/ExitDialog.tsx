@@ -199,7 +199,7 @@ export function ExitDialog({
                   )}
                   <PlateDisplay plate={foundVehicle.plate} size="lg" className="w-full justify-center" />
                   {foundVehicle.vehicleName && (
-                    <p className="text-center text-sm text-muted-foreground mt-1">{foundVehicle.vehicleName}</p>
+                    <p className="text-center text-lg font-bold text-primary mt-1 uppercase tracking-wide break-words">{foundVehicle.vehicleName}</p>
                   )}
                   <div className="mt-3 space-y-1.5 text-sm">
                     <div className="flex justify-between">

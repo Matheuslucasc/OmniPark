@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useParking } from '@/hooks/useParking';
 import { Sidebar } from '@/components/parking/Sidebar';
@@ -10,9 +10,9 @@ import { ExitDialog } from '@/components/parking/ExitDialog';
 import { PlateInput } from '@/components/parking/PlateInput';
 import { Button } from '@/components/ui/button';
 import { formatCurrency, formatPlate, formatTime, isValidPlate, formatTicket } from '@/lib/parking-utils';
-import { printEntryTicket } from '@/lib/print';
+import { printEntryTicket, printEntryTickets } from '@/lib/print';
+import { PendingPrintQueue } from '@/components/parking/PendingPrintQueue';
 import { useToast } from '@/hooks/use-toast';
-import { ToastAction } from '@/components/ui/toast';
 import { dbLogCorrection } from '@/lib/db';
 import { Car, DollarSign, LogIn, LogOut, ParkingCircle, Menu, Clock, Camera, X, Ticket } from 'lucide-react';
 import { Vehicle, ParkingSettings } from '@/types/parking';
@@ -35,6 +35,9 @@ interface PlateRead {
   imageUrl?: string;
   at: Date;
 }
+
+// Fila de tickets de entradas feitas em outros aparelhos (por aparelho)
+const PENDING_PRINTS_KEY = 'parking_pending_prints';
 
 const pageTitles: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -118,34 +121,28 @@ const Index = () => {
   }, []);
 
   // ── Entrada feita em OUTRO aparelho (ex: celular no pátio) ─────────────────
-  // Este aparelho pode imprimir o ticket: automaticamente (estação de impressão)
-  // ou por um aviso com botão "Imprimir".
+  // Este aparelho imprime o ticket automaticamente (estação de impressão) ou
+  // coloca a entrada numa fila de avisos amarelos que se acumulam até serem
+  // impressos/dispensados. A fila fica salva neste aparelho (sobrevive a F5).
   const { toast } = useToast();
   const settingsRef = useRef<ParkingSettings | null>(null);
+  const [pendingPrints, setPendingPrints] = useState<Vehicle[]>(() => {
+    try { return JSON.parse(localStorage.getItem(PENDING_PRINTS_KEY) ?? '[]') as Vehicle[]; } catch { return []; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(PENDING_PRINTS_KEY, JSON.stringify(pendingPrints)); } catch { /* sem storage */ }
+  }, [pendingPrints]);
+
   const handleRemoteEntry = (v: Vehicle) => {
     const s = settingsRef.current;
     if (!s) return;
-    const label = `${v.dailyTicket != null ? `Nº ${formatTicket(v.dailyTicket)} · ` : ''}${formatPlate(v.plate)}`;
     if (s.print.autoPrintRemoteEntries) {
       printEntryTicket(v, s);
+      const label = `${v.dailyTicket != null ? `Nº ${formatTicket(v.dailyTicket)} · ` : ''}${formatPlate(v.plate)}`;
       toast({ title: 'Ticket impresso (entrada de outro aparelho)', description: label });
       return;
     }
-    toast({
-      title: 'Nova entrada registrada em outro aparelho',
-      description: label,
-      duration: 60_000,
-      variant: 'highlight',
-      action: (
-        <ToastAction
-          altText="Imprimir ticket"
-          className="border-yellow-950 bg-yellow-950 text-yellow-50 font-semibold hover:bg-yellow-900 focus:ring-yellow-700"
-          onClick={() => printEntryTicket(v, settingsRef.current ?? s)}
-        >
-          Imprimir
-        </ToastAction>
-      ),
-    });
+    setPendingPrints(prev => (prev.some(p => p.id === v.id) ? prev : [v, ...prev]));
   };
 
   const {
@@ -163,6 +160,22 @@ const Index = () => {
     deleteVehicle,
   } = useParking({ onRemoteEntry: handleRemoteEntry });
   settingsRef.current = settings;
+
+  // Fila visível: só veículos que ainda estão no pátio, com os dados atuais
+  // (se alguém já deu saída ou excluiu, o aviso some sozinho).
+  const visiblePendingPrints = useMemo(() => {
+    if (isLoading) return [];
+    const byId = new Map(parkedVehicles.map(v => [v.id, v]));
+    return pendingPrints.map(p => byId.get(p.id)).filter((v): v is Vehicle => !!v);
+  }, [pendingPrints, parkedVehicles, isLoading]);
+
+  useEffect(() => {
+    if (isLoading) return;
+    const ids = new Set(parkedVehicles.map(v => v.id));
+    setPendingPrints(prev => (prev.every(p => ids.has(p.id)) ? prev : prev.filter(p => ids.has(p.id))));
+  }, [parkedVehicles, isLoading]);
+
+  const removePending = (id: string) => setPendingPrints(prev => prev.filter(p => p.id !== id));
 
   const handleVehicleExit = (vehicle: Vehicle) => {
     setSelectedVehicle(vehicle);
@@ -369,7 +382,7 @@ const Index = () => {
               ) : (
                 <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
                   {parkedVehicles.slice(0, 9).map(vehicle => (
-                    <VehicleCard key={vehicle.id} vehicle={vehicle} onExit={handleVehicleExit} onPrint={(v) => printEntryTicket(v, settings)} />
+                    <VehicleCard key={vehicle.id} vehicle={vehicle} onExit={handleVehicleExit} onPrint={(v) => { printEntryTicket(v, settings); removePending(v.id); }} />
                   ))}
                 </div>
               )}
@@ -483,6 +496,18 @@ const Index = () => {
           )}
         </main>
       </div>
+
+      <PendingPrintQueue
+        items={visiblePendingPrints}
+        onPrint={(v) => { printEntryTicket(v, settings); removePending(v.id); }}
+        onPrintAll={() => {
+          // Imprime do mais antigo para o mais novo, num único trabalho
+          printEntryTickets([...visiblePendingPrints].reverse(), settings);
+          setPendingPrints([]);
+        }}
+        onDismiss={removePending}
+        onDismissAll={() => setPendingPrints([])}
+      />
 
       <EntryDialog
         open={entryOpen}

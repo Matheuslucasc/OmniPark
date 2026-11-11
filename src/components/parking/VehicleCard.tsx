@@ -1,6 +1,6 @@
 import { Vehicle } from '@/types/parking';
 import { formatDateTime, formatDuration, formatPlate, formatTicket } from '@/lib/parking-utils';
-import { Clock, LogOut, Printer } from 'lucide-react';
+import { Clock, LogOut, Printer, Car } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -24,7 +24,10 @@ export function VehicleCard({ vehicle, onExit, onPrint, compact = false }: Vehic
               {formatPlate(vehicle.plate)}
             </div>
             {vehicle.vehicleName && (
-              <div className="text-xs text-muted-foreground">{vehicle.vehicleName}</div>
+              <div className="text-sm font-semibold text-primary flex items-center gap-1">
+                <Car className="w-3.5 h-3.5 shrink-0" />
+                {vehicle.vehicleName}
+              </div>
             )}
           </div>
           <div className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -47,8 +50,8 @@ export function VehicleCard({ vehicle, onExit, onPrint, compact = false }: Vehic
 
   return (
     <div className="p-4 bg-card rounded-xl border-2 border-border hover:border-primary/30 transition-all hover:shadow-md">
-      <div className="flex items-start justify-between mb-3">
-        <div>
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="min-w-0">
           {vehicle.dailyTicket != null && (
             <div className="text-xs font-semibold text-primary mb-0.5">Nº {formatTicket(vehicle.dailyTicket)}</div>
           )}
@@ -56,7 +59,10 @@ export function VehicleCard({ vehicle, onExit, onPrint, compact = false }: Vehic
             {formatPlate(vehicle.plate)}
           </div>
           {vehicle.vehicleName && (
-            <div className="text-sm text-muted-foreground mt-1">{vehicle.vehicleName}</div>
+            <div className="mt-2 inline-flex items-center gap-1.5 max-w-full px-2.5 py-1 rounded-md bg-primary/10 text-primary font-semibold text-base">
+              <Car className="w-4 h-4 shrink-0" />
+              <span className="truncate">{vehicle.vehicleName}</span>
+            </div>
           )}
         </div>
         <div 
