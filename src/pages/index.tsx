@@ -92,6 +92,9 @@ const Index = () => {
         .catch(e => console.error('[OmniPark] Falha ao registrar correção:', e));
       setOcrPlate('');
     }
+    // A leitura do dashboard foi "consumida": limpa o campo para o próximo carro
+    // (evita um Enter a mais tentar registrar a mesma placa de novo).
+    if (vehicle.plate === lastReadPlate.toUpperCase().replace(/[^A-Z0-9]/g, '')) limparLeitura();
     return vehicle;
   };
 
@@ -127,7 +130,13 @@ const Index = () => {
   const { toast } = useToast();
   const settingsRef = useRef<ParkingSettings | null>(null);
   const [pendingPrints, setPendingPrints] = useState<Vehicle[]>(() => {
-    try { return JSON.parse(localStorage.getItem(PENDING_PRINTS_KEY) ?? '[]') as Vehicle[]; } catch { return []; }
+    // Aceita só itens válidos: um dado corrompido no aparelho não pode derrubar a tela
+    try {
+      const raw: unknown = JSON.parse(localStorage.getItem(PENDING_PRINTS_KEY) ?? '[]');
+      return Array.isArray(raw)
+        ? raw.filter((v): v is Vehicle => !!v && typeof v === 'object' && typeof v.id === 'string' && typeof v.plate === 'string')
+        : [];
+    } catch { return []; }
   });
   useEffect(() => {
     try { localStorage.setItem(PENDING_PRINTS_KEY, JSON.stringify(pendingPrints)); } catch { /* sem storage */ }

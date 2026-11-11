@@ -70,9 +70,13 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
       console.error('[OmniPark] Erro ao registrar entrada:', msg);
       toast({
         title: "Erro ao registrar entrada",
-        description: msg.includes('row-level') || msg.includes('permission')
-          ? 'Permissão negada no banco. Execute o SQL de correção no Supabase.'
-          : msg,
+        description: /uq_vehicles_plate_parked|duplicate key/i.test(msg)
+          ? 'Esta placa já está no pátio (a entrada acabou de ser registrada em outro aparelho).'
+          : msg.includes('row-level') || msg.includes('permission')
+            ? 'Sem permissão no banco. Confirme se o seu usuário está aprovado.'
+            : /fetch|network|Failed/i.test(msg)
+              ? 'Sem conexão com o servidor. Verifique a internet e tente de novo.'
+              : msg,
         variant: "destructive",
       });
     } finally {

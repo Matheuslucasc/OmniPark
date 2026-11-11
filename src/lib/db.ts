@@ -61,14 +61,37 @@ export function rowToVehicle(row: Record<string, unknown>): Vehicle {
 
 // ── Vehicles ─────────────────────────────────────────────────────────────────
 
+/**
+ * Busca TODOS os veículos, em páginas. O Supabase devolve no máximo 1000 linhas
+ * por consulta: sem paginar, relatórios e histórico perderiam os registros mais
+ * antigos sem aviso assim que o total passasse de 1000.
+ */
 export async function dbFetchVehicles(): Promise<Vehicle[]> {
   if (!supabase) return [];
-  const { data, error } = await supabase
-    .from('vehicles')
-    .select('*')
-    .order('entry_time', { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map(rowToVehicle);
+  const PAGINA = 1000;
+  const todos = new Map<string, Vehicle>();
+  for (let de = 0; ; ) {
+    const { data, error } = await supabase
+      .from('vehicles')
+      .select('*')
+      .order('entry_time', { ascending: false })
+      .order('id', { ascending: true })
+      .range(de, de + PAGINA - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    // Map por id: se entrar um carro durante a paginação, não duplica
+    for (const row of data) todos.set(row.id as string, rowToVehicle(row));
+    de += data.length;
+  }
+  return [...todos.values()];
+}
+
+/** Erro de negócio: o veículo já saiu (ex.: saída registrada em outro aparelho). */
+export class VehicleAlreadyExitedError extends Error {
+  constructor() {
+    super('Este veículo já teve a saída registrada (possivelmente em outro aparelho).');
+    this.name = 'VehicleAlreadyExitedError';
+  }
 }
 
 export async function dbInsertVehicle(
@@ -101,13 +124,17 @@ export async function dbUpdateVehicleExit(
   amountPaid: number
 ): Promise<Vehicle> {
   if (!supabase) throw new Error('Supabase não configurado');
+  // Só atualiza se ainda estiver no pátio: se dois aparelhos derem saída no
+  // mesmo carro ao mesmo tempo, o segundo não sobrescreve horário/valor.
   const { data, error } = await supabase
     .from('vehicles')
     .update({ exit_time: exitTime, amount_paid: amountPaid, status: 'exited' })
     .eq('id', id)
+    .eq('status', 'parked')
     .select()
-    .single();
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new VehicleAlreadyExitedError();
   return rowToVehicle(data);
 }
 
@@ -173,7 +200,7 @@ export async function dbDeleteModule(id: string): Promise<void> {
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 
-function rowToSettings(row: Record<string, unknown>): ParkingSettings {
+export function rowToSettings(row: Record<string, unknown>): ParkingSettings {
   return {
     totalSpots:        Number(row.total_spots),
     parkingName:       (row.parking_name as string) ?? '',

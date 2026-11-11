@@ -10,6 +10,7 @@ import { formatDateTime, formatDuration, formatCurrency, calculateParkingFee, fo
 import { printHtml, buildExitReceiptHtml } from '@/lib/print';
 import { usePriceModules } from '@/hooks/usePriceModules';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
+import { useToast } from '@/hooks/use-toast';
 import { LogOut, Printer, Check, Clock, DollarSign, Search, Tag, Pencil, AlertTriangle } from 'lucide-react';
 
 interface ExitDialogProps {
@@ -40,7 +41,8 @@ export function ExitDialog({
   const [naoEncontrado, setNaoEncontrado] = useState(false); // feedback da busca
   const [valorManual, setValorManual] = useState<number | null>(null); // valor editado à mão
   const [editandoValor, setEditandoValor] = useState(false);
-  const { modules } = usePriceModules();
+  const { modules, reload: reloadModules } = usePriceModules();
+  const { toast } = useToast();
   // Lembra a última tarifa escolhida entre saídas ('padrao' ou id do módulo).
   const [lastTariffId, setLastTariffId] = useLocalStorage<string>('parking_last_tariff', 'padrao');
 
@@ -70,6 +72,12 @@ export function ExitDialog({
 
   // Libera a busca por placa completa (6+) OU por número de ticket (1 a 4 dígitos).
   const podeBuscar = plate.length >= 6 || /^\d{1,4}$/.test(plate);
+
+  // Sempre que a tela de saída abre, busca as tarifas atuais no banco
+  // (podem ter sido criadas/alteradas em outro aparelho).
+  useEffect(() => {
+    if (open) void reloadModules();
+  }, [open, reloadModules]);
 
   useEffect(() => {
     if (open && preSelectedVehicle) {
@@ -114,8 +122,19 @@ export function ExitDialog({
     if (!foundVehicle) return;
     setSubmitting(true);
     try {
-      const exited = await onConfirm(foundVehicle.id, selectedModule?.pricing, valorManual ?? undefined);
+      // Grava exatamente o valor exibido ao operador (calculado ou editado).
+      const exited = await onConfirm(foundVehicle.id, selectedModule?.pricing, fee);
       if (exited) setExitedVehicle(exited);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[OmniPark] Erro ao registrar saída:', msg);
+      toast({
+        title: 'Não foi possível registrar a saída',
+        description: /fetch|network|Failed/i.test(msg)
+          ? 'Sem conexão com o servidor. Verifique a internet e tente de novo.'
+          : msg,
+        variant: 'destructive',
+      });
     } finally {
       setSubmitting(false);
     }
@@ -273,8 +292,9 @@ export function ExitDialog({
                           defaultValue={fee}
                           onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                           onBlur={(e) => {
-                            const n = parseFloat(e.target.value);
-                            setValorManual(isNaN(n) || n < 0 ? 0 : Math.round(n));
+                            const n = parseFloat(e.target.value.replace(',', '.'));
+                            // Campo vazio/inválido mantém o valor calculado (não vira R$ 0)
+                            setValorManual(isNaN(n) || n < 0 ? null : Math.round(n));
                             setEditandoValor(false);
                           }}
                           className="w-24 h-10 text-right text-xl font-bold"

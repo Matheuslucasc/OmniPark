@@ -60,38 +60,43 @@ export function StatCard({
   return (
     <div
       className={cn(
-        'p-4 sm:p-6 rounded-xl border-2 transition-all hover:shadow-lg',
+        'p-4 sm:p-6 lg:p-4 xl:p-6 rounded-xl border-2 transition-all hover:shadow-lg',
         variantClasses[variant],
         className
       )}
     >
+      {/* Linha do título: nome + olho + ícone. O valor fica sozinho na linha de
+          baixo, com a largura toda do card (antes era cortado: "R$ 1..."). */}
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0 pt-1">
           <p className="text-xs sm:text-sm text-muted-foreground font-medium truncate">{title}</p>
-          <div className="flex items-center gap-2 mt-1">
-            <p className="text-2xl sm:text-3xl font-bold truncate">{shownValue}</p>
-            {hideable && (
-              <button
-                type="button"
-                onClick={toggleHidden}
-                aria-label={hidden ? 'Mostrar valor' : 'Ocultar valor'}
-                title={hidden ? 'Mostrar valor' : 'Ocultar valor'}
-                className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {hidden
-                  ? <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" />
-                  : <Eye className="w-4 h-4 sm:w-5 sm:h-5" />}
-              </button>
-            )}
-          </div>
-          {subtitle && (
-            <p className="text-xs sm:text-sm text-muted-foreground mt-1">{subtitle}</p>
+          {hideable && (
+            <button
+              type="button"
+              onClick={toggleHidden}
+              aria-label={hidden ? 'Mostrar valor' : 'Ocultar valor'}
+              title={hidden ? 'Mostrar valor' : 'Ocultar valor'}
+              className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {hidden
+                ? <EyeOff className="w-4 h-4" />
+                : <Eye className="w-4 h-4" />}
+            </button>
           )}
         </div>
-        <div className={cn('p-2 sm:p-3 rounded-lg shrink-0', iconClasses[variant])}>
-          <Icon className="w-4 h-4 sm:w-6 sm:h-6" />
+        <div className={cn('p-2 rounded-lg shrink-0', iconClasses[variant])}>
+          <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
       </div>
+      <p
+        className="mt-1 text-xl sm:text-2xl lg:text-xl xl:text-2xl 2xl:text-3xl font-bold tabular-nums whitespace-nowrap overflow-hidden text-ellipsis"
+        title={String(shownValue)}
+      >
+        {shownValue}
+      </p>
+      {subtitle && (
+        <p className="text-xs sm:text-sm text-muted-foreground mt-1">{subtitle}</p>
+      )}
     </div>
   );
 }

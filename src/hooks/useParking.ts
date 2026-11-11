@@ -3,7 +3,7 @@ import { useLocalStorage } from './useLocalStorage';
 import { Vehicle, ParkingSettings, ParkingStats, DEFAULT_SETTINGS, HistoryFilters } from '@/types/parking';
 import { calculateParkingFee, generateId, isToday, normalizePricing } from '@/lib/parking-utils';
 import { hasDB, supabase } from '@/lib/supabase';
-import { rowToVehicle, dbFetchVehicles, dbInsertVehicle, dbUpdateVehicleExit, dbDeleteVehicle, dbFetchSettings, dbUpsertSettings } from '@/lib/db';
+import { rowToVehicle, rowToSettings, VehicleAlreadyExitedError, dbFetchVehicles, dbInsertVehicle, dbUpdateVehicleExit, dbDeleteVehicle, dbFetchSettings, dbUpsertSettings } from '@/lib/db';
 
 const VEHICLES_KEY = 'parking_vehicles';
 const SETTINGS_KEY = 'parking_settings';
@@ -26,12 +26,13 @@ export function useParking({ onRemoteEntry }: UseParkingOptions = {}) {
   const mergedLocal: ParkingSettings = {
     ...DEFAULT_SETTINGS,
     ...localSettings,
-    print: { ...DEFAULT_SETTINGS.print, ...(localSettings.print ?? {}) },
-    pricing: normalizePricing(localSettings.pricing, DEFAULT_SETTINGS.pricing),
+    print: { ...DEFAULT_SETTINGS.print, ...(localSettings?.print ?? {}) },
+    pricing: normalizePricing(localSettings?.pricing, DEFAULT_SETTINGS.pricing),
   };
 
   // Live state (mirrors DB or localStorage)
-  const [vehicles, setVehicles] = useState<Vehicle[]>(localVehicles);
+  const [vehicles, setVehicles] = useState<Vehicle[]>(() =>
+    Array.isArray(localVehicles) ? localVehicles.filter(v => v && typeof v.id === 'string') : []);
   const [settings, setSettings] = useState<ParkingSettings>(mergedLocal);
   const [isLoading, setIsLoading] = useState(hasDB());
 
@@ -97,17 +98,33 @@ export function useParking({ onRemoteEntry }: UseParkingOptions = {}) {
       })
       .subscribe();
 
+    // Configurações/preços alterados em outro aparelho (ex.: ligar o valor fixo
+    // no começo do evento) valem na hora em todos — mantendo a impressora local.
+    // Canal separado: se o banco ainda não liberou o Realtime desta tabela, a
+    // sincronização dos veículos (canal acima) não é afetada.
+    const settingsChannel = client
+      .channel('settings_live')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'parking_settings' }, (payload) => {
+        const novo = rowToSettings(payload.new as Record<string, unknown>);
+        setSettings(prev => ({ ...novo, print: prev.print }));
+      })
+      .subscribe();
+
     // Rede: ao voltar para a aba (ou o celular acordar), recarrega a lista para
     // cobrir eventos perdidos enquanto a conexão estava parada.
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
       dbFetchVehicles().then(setVehicles).catch(() => { /* mantém a lista atual */ });
+      dbFetchSettings()
+        .then(r => { if (r?.userSaved) setSettings(prev => ({ ...r.settings, print: prev.print })); })
+        .catch(() => { /* mantém as atuais */ });
     };
     document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
       client.removeChannel(channel);
+      client.removeChannel(settingsChannel);
     };
   }, []);
 
@@ -178,18 +195,26 @@ export function useParking({ onRemoteEntry }: UseParkingOptions = {}) {
 
   const registerExit = useCallback(async (vehicleId: string, customPricing?: typeof settings.pricing, overrideAmount?: number): Promise<Vehicle | null> => {
     const target = vehicles.find(v => v.id === vehicleId && v.status === 'parked');
-    if (!target) return null;
+    if (!target) throw new VehicleAlreadyExitedError();
 
     const exitTime = new Date();
-    // Se o operador editou o valor manualmente, usa esse; senão calcula.
+    // `overrideAmount` = o valor que o operador VIU na tela (calculado ou editado
+    // à mão). Gravar exatamente esse valor evita cobrar diferente do informado
+    // ao cliente se a hora "virar" entre abrir a tela e confirmar.
     const amountPaid = overrideAmount != null
       ? overrideAmount
       : calculateParkingFee(new Date(target.entryTime), exitTime, customPricing ?? settings.pricing);
 
     if (hasDB()) {
-      const updated = await dbUpdateVehicleExit(vehicleId, exitTime.toISOString(), amountPaid);
-      setVehicles(prev => prev.map(v => v.id === vehicleId ? updated : v));
-      return updated;
+      try {
+        const updated = await dbUpdateVehicleExit(vehicleId, exitTime.toISOString(), amountPaid);
+        setVehicles(prev => prev.map(v => v.id === vehicleId ? updated : v));
+        return updated;
+      } catch (e) {
+        // Já saiu por outro aparelho: atualiza a lista para refletir o banco
+        if (e instanceof VehicleAlreadyExitedError) dbFetchVehicles().then(setVehicles).catch(() => {});
+        throw e;
+      }
     }
 
     const exited: Vehicle = {

@@ -15,23 +15,31 @@ export function usePriceModules() {
   const [localModules, setLocalModules] = useLocalStorage<PriceModule[]>(KEY, []);
   // Normaliza tarifas antigas salvas antes de existir o modo de cobrança
   const [modules, setModules] = useState<PriceModule[]>(() =>
-    localModules.map(m => ({ ...m, pricing: normalizePricing(m.pricing, DEFAULT_SETTINGS.pricing) })),
+    (Array.isArray(localModules) ? localModules : [])
+      .filter(m => m && m.pricing)
+      .map(m => ({ ...m, pricing: normalizePricing(m.pricing, DEFAULT_SETTINGS.pricing) })),
   );
   const [loading, setLoading] = useState(hasDB());
 
-  useEffect(() => {
+  /** Recarrega do banco (tarifas criadas/alteradas em outro aparelho). */
+  const reload = useCallback(async () => {
     if (!hasDB()) return;
-    (async () => {
-      try {
-        const rows = await dbFetchModules();
-        setModules(rows);
-      } catch (e) {
-        console.error('[OmniPark] Erro ao carregar módulos de preço:', e);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    try {
+      setModules(await dbFetchModules());
+    } catch (e) {
+      console.error('[OmniPark] Erro ao carregar módulos de preço:', e);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void reload();
+    // Ao voltar para a aba/app, pega tarifas alteradas em outro aparelho
+    const onVisible = () => { if (document.visibilityState === 'visible') void reload(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [reload]);
 
   const saveModule = useCallback(async (m: PriceModule): Promise<void> => {
     if (hasDB()) {
@@ -60,5 +68,5 @@ export function usePriceModules() {
     if (!hasDB()) setLocalModules(updated);
   }, [modules, setLocalModules]);
 
-  return { modules, loading, addModule, saveModule, removeModule };
+  return { modules, loading, reload, addModule, saveModule, removeModule };
 }
