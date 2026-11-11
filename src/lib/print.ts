@@ -1,4 +1,5 @@
-import type { PrintSettings, PaperSize } from '@/types/parking';
+import type { PrintSettings, PaperSize, Vehicle, ParkingSettings } from '@/types/parking';
+import { formatDateTime, formatTicket } from '@/lib/parking-utils';
 
 const paperCss: Record<PaperSize, string> = {
   a4:         '@page { size: A4; margin: 15mm; }',
@@ -155,4 +156,23 @@ export function buildExitReceiptHtml(d: ExitReceiptData): string {
     <div class="divider"></div>
     <div class="center small">Obrigado pela preferência!</div>
   `;
+}
+
+/** Imprime (ou reimprime) o ticket de entrada de um veículo — usado em qualquer aparelho. */
+export function printEntryTicket(v: Vehicle, s: ParkingSettings): void {
+  printHtml(
+    buildEntryTicketHtml({
+      plate:             v.plate,
+      vehicleName:       v.vehicleName,
+      entryTime:         formatDateTime(v.entryTime),
+      id:                v.id,
+      ticketNumber:      formatTicket(v.dailyTicket),
+      parkingName:       s.parkingName,
+      parkingAddress:    s.parkingAddress,
+      parkingPhone:      s.parkingPhone,
+      ticketObservation: s.ticketObservation,
+      fixedPrice:        s.pricing.chargeMode === 'fixed' ? s.pricing.fixedPrice : undefined,
+    }),
+    s.print,
+  );
 }

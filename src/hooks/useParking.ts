@@ -1,14 +1,24 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useLocalStorage } from './useLocalStorage';
 import { Vehicle, ParkingSettings, ParkingStats, DEFAULT_SETTINGS, HistoryFilters } from '@/types/parking';
 import { calculateParkingFee, generateId, isToday, normalizePricing } from '@/lib/parking-utils';
-import { hasDB } from '@/lib/supabase';
-import { dbFetchVehicles, dbInsertVehicle, dbUpdateVehicleExit, dbDeleteVehicle, dbFetchSettings, dbUpsertSettings } from '@/lib/db';
+import { hasDB, supabase } from '@/lib/supabase';
+import { rowToVehicle, dbFetchVehicles, dbInsertVehicle, dbUpdateVehicleExit, dbDeleteVehicle, dbFetchSettings, dbUpsertSettings } from '@/lib/db';
 
 const VEHICLES_KEY = 'parking_vehicles';
 const SETTINGS_KEY = 'parking_settings';
 
-export function useParking() {
+/** Insere ou substitui pelo id (evita duplicar quando o Realtime e o insert local chegam juntos). */
+function upsertById(list: Vehicle[], v: Vehicle): Vehicle[] {
+  return list.some(x => x.id === v.id) ? list.map(x => (x.id === v.id ? { ...x, ...v } : x)) : [v, ...list];
+}
+
+interface UseParkingOptions {
+  /** Chamado quando outro aparelho registra uma entrada (via Supabase Realtime). */
+  onRemoteEntry?: (vehicle: Vehicle) => void;
+}
+
+export function useParking({ onRemoteEntry }: UseParkingOptions = {}) {
   const [localVehicles, setLocalVehicles] = useLocalStorage<Vehicle[]>(VEHICLES_KEY, []);
   const [localSettings, setLocalSettings] = useLocalStorage<ParkingSettings>(SETTINGS_KEY, DEFAULT_SETTINGS);
 
@@ -60,6 +70,47 @@ export function useParking() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Sincronização entre aparelhos (Supabase Realtime) ──────────────────────
+  // Placas sendo registradas NESTE aparelho: o evento de INSERT pode chegar antes
+  // da resposta do insert, então marcamos pela placa para não tratar como remota.
+  const localPlatesRef = useRef<Set<string>>(new Set());
+  const onRemoteEntryRef = useRef(onRemoteEntry);
+  onRemoteEntryRef.current = onRemoteEntry;
+
+  useEffect(() => {
+    if (!supabase) return;
+    const client = supabase;
+
+    const channel = client
+      .channel('vehicles_live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, (payload) => {
+        if (payload.eventType === 'DELETE') {
+          const id = (payload.old as { id?: string }).id;
+          if (id) setVehicles(prev => prev.filter(v => v.id !== id));
+          return;
+        }
+        const v = rowToVehicle(payload.new as Record<string, unknown>);
+        setVehicles(prev => upsertById(prev, v));
+        if (payload.eventType === 'INSERT' && !localPlatesRef.current.has(v.plate)) {
+          onRemoteEntryRef.current?.(v);
+        }
+      })
+      .subscribe();
+
+    // Rede: ao voltar para a aba (ou o celular acordar), recarrega a lista para
+    // cobrir eventos perdidos enquanto a conexão estava parada.
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      dbFetchVehicles().then(setVehicles).catch(() => { /* mantém a lista atual */ });
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      client.removeChannel(channel);
+    };
+  }, []);
+
   // ── Derived ─────────────────────────────────────────────────────────────────
 
   const parkedVehicles = useMemo(
@@ -109,10 +160,12 @@ export function useParking() {
     };
 
     if (hasDB()) {
+      localPlatesRef.current.add(normalized);
+      setTimeout(() => localPlatesRef.current.delete(normalized), 30_000);
       const saved = await dbInsertVehicle(draft);
       // Garante o número mesmo se a coluna ainda não existir no banco.
       const withTicket = { ...saved, dailyTicket: saved.dailyTicket ?? dailyTicket };
-      setVehicles(prev => [withTicket, ...prev]);
+      setVehicles(prev => upsertById(prev, withTicket));
       return withTicket;
     }
 

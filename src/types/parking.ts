@@ -36,6 +36,8 @@ export interface PrintSettings {
   paperSize: PaperSize;
   fontSize: number;      // pt
   printerName: string;   // apenas informativo — lembrete para o operador
+  /** Este aparelho imprime sozinho os tickets de entradas feitas em outros aparelhos. */
+  autoPrintRemoteEntries?: boolean;
 }
 
 export interface ParkingSettings {

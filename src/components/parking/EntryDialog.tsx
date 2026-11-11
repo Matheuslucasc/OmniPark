@@ -6,7 +6,7 @@ import { PlateInput } from './PlateInput';
 import { PlateDisplay } from './PlateDisplay';
 import { Vehicle, ParkingSettings } from '@/types/parking';
 import { formatDateTime, formatCurrency, isValidPlate, formatTicket } from '@/lib/parking-utils';
-import { printHtml, buildEntryTicketHtml } from '@/lib/print';
+import { printEntryTicket } from '@/lib/print';
 import { LogIn, LogOut, Printer, Check, Car, AlertTriangle, Ticket } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -19,9 +19,11 @@ interface EntryDialogProps {
   settings: ParkingSettings;
   findVehicleByPlate?: (plate: string) => Vehicle | undefined;
   onRegisterExit?: (vehicle: Vehicle) => void;
+  /** Registra a entrada assim que abrir (Enter no campo de placa do dashboard). */
+  autoConfirm?: boolean;
 }
 
-export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plateImageUrl, settings, findVehicleByPlate, onRegisterExit }: EntryDialogProps) {
+export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plateImageUrl, settings, findVehicleByPlate, onRegisterExit, autoConfirm }: EntryDialogProps) {
   const [plate, setPlate] = useState(lastReadPlate || '');
   const [vehicleName, setVehicleName] = useState('');
   const [confirmedVehicle, setConfirmedVehicle] = useState<Vehicle | null>(null);
@@ -35,12 +37,15 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
   useEffect(() => {
     if (open && lastReadPlate) {
       setPlate(lastReadPlate);
+      // Enter no dashboard: já registra com a placa digitada
+      if (autoConfirm && isValidPlate(lastReadPlate)) void handleConfirm(lastReadPlate);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const handleConfirm = async () => {
-    if (!isValidPlate(plate)) {
+  const handleConfirm = async (placa: string = plate) => {
+    if (submitting) return;
+    if (!isValidPlate(placa)) {
       toast({
         title: "Placa inválida",
         description: "A placa deve ter 7 caracteres no formato ABC1234 ou ABC1D23.",
@@ -50,7 +55,7 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
     }
 
     // Veículo com bilhete ativo não pode entrar de novo: oferece a saída.
-    const estacionado = findVehicleByPlate?.(plate);
+    const estacionado = findVehicleByPlate?.(placa);
     if (estacionado) {
       setAlreadyParked(estacionado);
       return;
@@ -58,7 +63,7 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
 
     setSubmitting(true);
     try {
-      const vehicle = await onConfirm(plate, vehicleName);
+      const vehicle = await onConfirm(placa, vehicleName);
       setConfirmedVehicle(vehicle);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -78,22 +83,7 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
   const isFixed = settings.pricing.chargeMode === 'fixed';
 
   const handlePrint = () => {
-    if (!confirmedVehicle) return;
-    printHtml(
-      buildEntryTicketHtml({
-        plate:             confirmedVehicle.plate,
-        vehicleName:       confirmedVehicle.vehicleName,
-        entryTime:         formatDateTime(confirmedVehicle.entryTime),
-        id:                confirmedVehicle.id,
-        ticketNumber:      formatTicket(confirmedVehicle.dailyTicket),
-        parkingName:       settings.parkingName,
-        parkingAddress:    settings.parkingAddress,
-        parkingPhone:      settings.parkingPhone,
-        ticketObservation: settings.ticketObservation,
-        fixedPrice:        isFixed ? settings.pricing.fixedPrice : undefined,
-      }),
-      settings.print,
-    );
+    if (confirmedVehicle) printEntryTicket(confirmedVehicle, settings);
   };
 
   const handleRegisterExit = () => {
@@ -164,7 +154,8 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
               <PlateInput
                 value={plate}
                 onChange={setPlate}
-                onSubmit={handleConfirm}
+                onSubmit={() => handleConfirm()}
+                enterHint={isValidPlate(plate) ? 'Pressione Enter para registrar' : undefined}
                 autoFocus
               />
             </div>
@@ -202,7 +193,7 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
               </div>
             )}
 
-            <Button className="w-full" onClick={handleConfirm} disabled={plate.length < 7 || submitting}>
+            <Button className="w-full" onClick={() => handleConfirm()} disabled={plate.length < 7 || submitting}>
               <LogIn className="w-4 h-4 mr-2" />
               Confirmar Entrada
             </Button>

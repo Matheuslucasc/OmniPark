@@ -298,3 +298,23 @@ ALTER TABLE parking_settings ALTER COLUMN total_spots SET DEFAULT 25;
 -- OPCIONAL: aplicar 25 vagas no banco atual (só se ainda estiver no padrão antigo de 50).
 -- Depois disso continua sendo possível alterar em Configurações → Total de Vagas.
 -- UPDATE parking_settings SET total_spots = 25 WHERE total_spots = 50;
+
+-- ============================================================
+-- MIGRAÇÃO: sincronização de veículos entre aparelhos (Realtime)
+-- Faz uma entrada registrada no celular aparecer na hora no computador
+-- (e permite imprimir o ticket por lá). Seguro rodar mais de uma vez.
+-- Assim como na plate_reads, o Realtime só entrega eventos com RLS ligado
+-- e uma policy de SELECT para quem escuta (usuários logados).
+-- ============================================================
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE vehicles;
+EXCEPTION WHEN duplicate_object THEN
+  NULL;  -- já estava na publicação
+END $$;
+
+ALTER TABLE vehicles ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "auth users full access on vehicles" ON vehicles;
+CREATE POLICY "auth users full access on vehicles"
+  ON vehicles FOR ALL TO authenticated USING (true) WITH CHECK (true);

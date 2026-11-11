@@ -4,6 +4,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Save, Building, DollarSign, Clock, FileText, Printer } from 'lucide-react';
 import { useState, useEffect } from 'react';
@@ -347,6 +348,27 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
                 Apenas um lembrete para o operador. Para definir a impressora padrão, selecione-a
                 uma vez no diálogo de impressão do navegador — ele vai lembrar nas próximas vezes.
               </p>
+            </div>
+
+            <div className="md:col-span-2 flex items-start justify-between gap-4 p-3 rounded-lg border bg-secondary/50">
+              <div className="space-y-1">
+                <Label htmlFor="autoPrintRemote" className="cursor-pointer">
+                  Imprimir automaticamente entradas de outros aparelhos
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Ligue <strong>só no computador que tem a impressora</strong>. Quando alguém registrar
+                  uma entrada pelo celular, o ticket sai aqui sozinho. Desligado, aparece um aviso com o
+                  botão &quot;Imprimir&quot;. Vale só para este aparelho. Para imprimir sem abrir a janela
+                  de impressão, abra o Chrome com <code>--kiosk-printing</code>.
+                </p>
+              </div>
+              <Switch
+                id="autoPrintRemote"
+                checked={!!localSettings.print?.autoPrintRemoteEntries}
+                onCheckedChange={(checked) =>
+                  setLocalSettings(s => ({ ...s, print: { ...s.print, autoPrintRemoteEntries: checked } }))
+                }
+              />
             </div>
           </div>
 

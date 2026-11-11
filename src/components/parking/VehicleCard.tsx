@@ -1,16 +1,17 @@
 import { Vehicle } from '@/types/parking';
 import { formatDateTime, formatDuration, formatPlate, formatTicket } from '@/lib/parking-utils';
-import { Clock, LogOut } from 'lucide-react';
+import { Clock, LogOut, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 interface VehicleCardProps {
   vehicle: Vehicle;
   onExit?: (vehicle: Vehicle) => void;
+  onPrint?: (vehicle: Vehicle) => void;
   compact?: boolean;
 }
 
-export function VehicleCard({ vehicle, onExit, compact = false }: VehicleCardProps) {
+export function VehicleCard({ vehicle, onExit, onPrint, compact = false }: VehicleCardProps) {
   const entryDate = new Date(vehicle.entryTime);
   const duration = formatDuration(entryDate);
 
@@ -84,14 +85,27 @@ export function VehicleCard({ vehicle, onExit, compact = false }: VehicleCardPro
         </div>
       </div>
 
-      {onExit && vehicle.status === 'parked' && (
-        <Button 
-          className="w-full mt-4" 
-          onClick={() => onExit(vehicle)}
-        >
-          <LogOut className="w-4 h-4 mr-2" />
-          Registrar Saída
-        </Button>
+      {vehicle.status === 'parked' && (onExit || onPrint) && (
+        <div className="flex gap-2 mt-4">
+          {onPrint && (
+            <Button
+              variant="outline"
+              className={onExit ? 'shrink-0' : 'w-full'}
+              onClick={() => onPrint(vehicle)}
+              aria-label="Imprimir ticket de entrada"
+              title="Imprimir ticket de entrada"
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              Ticket
+            </Button>
+          )}
+          {onExit && (
+            <Button className="flex-1" onClick={() => onExit(vehicle)}>
+              <LogOut className="w-4 h-4 mr-2" />
+              Registrar Saída
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );

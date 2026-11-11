@@ -46,7 +46,7 @@ function withoutChargeColumns<T extends Record<string, unknown>>(payload: T) {
 
 // ── Mapeamento banco (snake_case) → app (camelCase) ──────────────────────────
 
-function rowToVehicle(row: Record<string, unknown>): Vehicle {
+export function rowToVehicle(row: Record<string, unknown>): Vehicle {
   return {
     id:          row.id as string,
     plate:       row.plate as string,

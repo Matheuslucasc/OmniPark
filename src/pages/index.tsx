@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useParking } from '@/hooks/useParking';
 import { Sidebar } from '@/components/parking/Sidebar';
@@ -9,10 +9,13 @@ import { EntryDialog } from '@/components/parking/EntryDialog';
 import { ExitDialog } from '@/components/parking/ExitDialog';
 import { PlateInput } from '@/components/parking/PlateInput';
 import { Button } from '@/components/ui/button';
-import { formatCurrency, formatPlate, formatTime } from '@/lib/parking-utils';
+import { formatCurrency, formatPlate, formatTime, isValidPlate, formatTicket } from '@/lib/parking-utils';
+import { printEntryTicket } from '@/lib/print';
+import { useToast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 import { dbLogCorrection } from '@/lib/db';
 import { Car, DollarSign, LogIn, LogOut, ParkingCircle, Menu, Clock, Camera, X, Ticket } from 'lucide-react';
-import { Vehicle } from '@/types/parking';
+import { Vehicle, ParkingSettings } from '@/types/parking';
 
 // Telas secundárias carregadas sob demanda (code-splitting) — só baixam
 // quando o operador abre a aba, deixando o dashboard inicial mais leve.
@@ -48,6 +51,8 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [entryOpen, setEntryOpen] = useState(false);
+  // true quando a entrada foi disparada pelo Enter no dashboard (registra direto)
+  const [entryAutoConfirm, setEntryAutoConfirm] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [lastReadPlate, setLastReadPlate] = useState('');
@@ -112,6 +117,32 @@ const Index = () => {
     return () => { client.removeChannel(channel); };
   }, []);
 
+  // ── Entrada feita em OUTRO aparelho (ex: celular no pátio) ─────────────────
+  // Este aparelho pode imprimir o ticket: automaticamente (estação de impressão)
+  // ou por um aviso com botão "Imprimir".
+  const { toast } = useToast();
+  const settingsRef = useRef<ParkingSettings | null>(null);
+  const handleRemoteEntry = (v: Vehicle) => {
+    const s = settingsRef.current;
+    if (!s) return;
+    const label = `${v.dailyTicket != null ? `Nº ${formatTicket(v.dailyTicket)} · ` : ''}${formatPlate(v.plate)}`;
+    if (s.print.autoPrintRemoteEntries) {
+      printEntryTicket(v, s);
+      toast({ title: 'Ticket impresso (entrada de outro aparelho)', description: label });
+      return;
+    }
+    toast({
+      title: 'Nova entrada registrada em outro aparelho',
+      description: label,
+      duration: 60_000,
+      action: (
+        <ToastAction altText="Imprimir ticket" onClick={() => printEntryTicket(v, settingsRef.current ?? s)}>
+          Imprimir
+        </ToastAction>
+      ),
+    });
+  };
+
   const {
     vehicles,
     parkedVehicles,
@@ -125,7 +156,8 @@ const Index = () => {
     updateSettings,
     updatePricing,
     deleteVehicle,
-  } = useParking();
+  } = useParking({ onRemoteEntry: handleRemoteEntry });
+  settingsRef.current = settings;
 
   const handleVehicleExit = (vehicle: Vehicle) => {
     setSelectedVehicle(vehicle);
@@ -245,6 +277,12 @@ const Index = () => {
                       pushPlateRead(val, plateImageUrl);
                     }}
                     placeholder="Digite a placa…"
+                    onSubmit={() => {
+                      if (!isValidPlate(lastReadPlate)) return;
+                      setEntryAutoConfirm(true);
+                      setEntryOpen(true);
+                    }}
+                    enterHint={isValidPlate(lastReadPlate) ? 'Pressione Enter para registrar a entrada' : undefined}
                   />
                 </div>
 
@@ -326,7 +364,7 @@ const Index = () => {
               ) : (
                 <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
                   {parkedVehicles.slice(0, 9).map(vehicle => (
-                    <VehicleCard key={vehicle.id} vehicle={vehicle} onExit={handleVehicleExit} />
+                    <VehicleCard key={vehicle.id} vehicle={vehicle} onExit={handleVehicleExit} onPrint={(v) => printEntryTicket(v, settings)} />
                   ))}
                 </div>
               )}
@@ -443,7 +481,11 @@ const Index = () => {
 
       <EntryDialog
         open={entryOpen}
-        onOpenChange={setEntryOpen}
+        onOpenChange={(open) => {
+          setEntryOpen(open);
+          if (!open) setEntryAutoConfirm(false);
+        }}
+        autoConfirm={entryAutoConfirm}
         onConfirm={registerEntryWithLog}
         lastReadPlate={lastReadPlate}
         plateImageUrl={plateImageUrl}

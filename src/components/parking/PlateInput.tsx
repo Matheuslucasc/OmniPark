@@ -10,6 +10,8 @@ interface PlateInputProps {
   autoFocus?: boolean;
   className?: string;
   submitMinLength?: number; // comprimento mínimo para o Enter disparar (padrão 7)
+  /** Dica exibida abaixo do campo quando o Enter já pode ser usado. */
+  enterHint?: string;
 }
 
 export function PlateInput({
@@ -20,6 +22,7 @@ export function PlateInput({
   autoFocus = false,
   className,
   submitMinLength = 7,
+  enterHint,
 }: PlateInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -37,6 +40,7 @@ export function PlateInput({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && onSubmit && value.length >= submitMinLength) {
+      e.preventDefault();
       onSubmit();
     }
   };
@@ -61,10 +65,19 @@ export function PlateInput({
         placeholder={placeholder}
         className="font-mono text-2xl tracking-[0.15em] text-center h-14 uppercase"
         maxLength={8}
+        autoCapitalize="characters"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        // No celular, o teclado mostra "Ir" no lugar do Enter quando há ação
+        enterKeyHint={onSubmit ? 'go' : undefined}
       />
-      <div className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+      <div className="absolute right-2 top-7 -translate-y-1/2 text-xs text-muted-foreground">
         {value.length}/7
       </div>
+      {enterHint && onSubmit && value.length >= submitMinLength && (
+        <p className="mt-1 text-xs text-center text-primary font-medium">{enterHint}</p>
+      )}
     </div>
   );
 }
