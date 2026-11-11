@@ -214,27 +214,30 @@ export function rowToSettings(row: Record<string, unknown>): ParkingSettings {
   };
 }
 
+/** Linha única de configuração: o app grava e lê SEMPRE esta. */
+export const SETTINGS_ROW_ID = 1;
+
 /**
- * Retorna as settings do banco.
- * `userSaved = true` indica que o usuário já salvou ao menos uma vez
- * (updated_at > created_at via trigger), ou seja, não são os defaults do schema.
+ * Retorna as configurações do banco (linha id = 1), ou null se ainda não existir.
+ * Antes lia "a primeira linha que viesse", sem ordem: como rodar o schema.sql
+ * de novo criava linhas extras com os valores padrão, o app às vezes lia uma
+ * delas e as configurações salvas pareciam "voltar" sozinhas.
  */
-export async function dbFetchSettings(): Promise<{ settings: ParkingSettings; userSaved: boolean } | null> {
+export async function dbFetchSettings(): Promise<ParkingSettings | null> {
   if (!supabase) return null;
   const { data, error } = await supabase
     .from('parking_settings')
     .select('*')
-    .limit(1)
-    .single();
-  if (error || !data) return null;
-  const userSaved = data.updated_at !== data.created_at;
-  return { settings: rowToSettings(data), userSaved };
+    .eq('id', SETTINGS_ROW_ID)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? rowToSettings(data) : null;
 }
 
 export async function dbUpsertSettings(s: ParkingSettings): Promise<void> {
   if (!supabase) return;
   const payload = {
-    id:                 1,
+    id:                 SETTINGS_ROW_ID,
     total_spots:        s.totalSpots,
     parking_name:       s.parkingName,
     parking_address:    s.parkingAddress,

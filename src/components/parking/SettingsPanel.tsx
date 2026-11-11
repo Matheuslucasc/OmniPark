@@ -16,31 +16,54 @@ import { ChargeModeSelector, FixedPriceField } from './ChargeModeFields';
 
 interface SettingsPanelProps {
   settings: ParkingSettings;
-  onUpdateSettings: (settings: Partial<ParkingSettings>) => void;
-  onUpdatePricing: (pricing: Partial<PricingSettings>) => void;
+  onUpdateSettings: (settings: Partial<ParkingSettings>) => Promise<void> | void;
+  onUpdatePricing: (pricing: Partial<PricingSettings>) => Promise<void> | void;
 }
 
 export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps) {
   const [localSettings, setLocalSettings] = useState(settings);
   const { toast } = useToast();
 
-  // Sincroniza quando o banco carrega as configurações salvas
+  // Alterações ainda não salvas: enquanto existirem, uma atualização vinda de
+  // outro aparelho (ou de voltar para a aba) não apaga o que está sendo editado.
+  const [alterado, setAlterado] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const editar: typeof setLocalSettings = (valor) => { setAlterado(true); setLocalSettings(valor); };
+
+  // Sincroniza o formulário com as configurações oficiais (banco/outros
+  // aparelhos) sempre que não houver edição pendente — inclusive logo após salvar.
   useEffect(() => {
+    if (alterado) return;
     setLocalSettings(settings);
-  }, [settings]);
+  }, [settings, alterado]);
 
   const isFixed = localSettings.pricing.chargeMode === 'fixed';
 
-  const handleSave = () => {
-    // passa tudo de uma vez para evitar race condition entre dois setSettings separados
-    onUpdateSettings(localSettings);
-
-    toast({
-      title: "Configurações salvas",
-      description: localSettings.pricing.chargeMode === 'fixed'
-        ? `Cobrança em valor fixo: ${formatCurrency(localSettings.pricing.fixedPrice)} por veículo.`
-        : "As alterações foram aplicadas com sucesso.",
-    });
+  const handleSave = async () => {
+    setSalvando(true);
+    try {
+      // passa tudo de uma vez para evitar race condition entre dois setSettings separados
+      await onUpdateSettings(localSettings);
+      setAlterado(false);
+      toast({
+        title: "Configurações salvas",
+        description: localSettings.pricing.chargeMode === 'fixed'
+          ? `Cobrança em valor fixo: ${formatCurrency(localSettings.pricing.fixedPrice)} por veículo.`
+          : "Valem agora em todos os aparelhos.",
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[OmniPark] Erro ao salvar configurações:', msg);
+      toast({
+        title: "Não foi possível salvar",
+        description: /fetch|network|Failed/i.test(msg)
+          ? 'Sem conexão com o servidor. As alterações continuam na tela: tente salvar de novo.'
+          : `O servidor recusou: ${msg}`,
+        variant: "destructive",
+      });
+    } finally {
+      setSalvando(false);
+    }
   };
 
   return (
@@ -63,7 +86,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
               <Input
                 id="name"
                 value={localSettings.parkingName}
-                onChange={(e) => setLocalSettings(s => ({ ...s, parkingName: e.target.value }))}
+                onChange={(e) => editar(s => ({ ...s, parkingName: e.target.value }))}
               />
             </div>
             <div className="space-y-2">
@@ -71,7 +94,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
               <Input
                 id="phone"
                 value={localSettings.parkingPhone}
-                onChange={(e) => setLocalSettings(s => ({ ...s, parkingPhone: e.target.value }))}
+                onChange={(e) => editar(s => ({ ...s, parkingPhone: e.target.value }))}
               />
             </div>
             <div className="space-y-2 md:col-span-2">
@@ -79,7 +102,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
               <Input
                 id="address"
                 value={localSettings.parkingAddress}
-                onChange={(e) => setLocalSettings(s => ({ ...s, parkingAddress: e.target.value }))}
+                onChange={(e) => editar(s => ({ ...s, parkingAddress: e.target.value }))}
               />
             </div>
             <div className="space-y-2">
@@ -87,7 +110,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
               <Input
                 id="cnpj"
                 value={localSettings.parkingCNPJ}
-                onChange={(e) => setLocalSettings(s => ({ ...s, parkingCNPJ: e.target.value }))}
+                onChange={(e) => editar(s => ({ ...s, parkingCNPJ: e.target.value }))}
               />
             </div>
             <div className="space-y-2">
@@ -97,7 +120,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
                 type="number"
                 min={1}
                 value={localSettings.totalSpots}
-                onChange={(e) => setLocalSettings(s => ({ ...s, totalSpots: parseInt(e.target.value) || 1 }))}
+                onChange={(e) => editar(s => ({ ...s, totalSpots: parseInt(e.target.value) || 1 }))}
               />
               <p className="text-xs text-muted-foreground">
                 Padrão: {DEFAULT_SETTINGS.totalSpots} vagas
@@ -107,7 +130,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
                     <button
                       type="button"
                       className="underline hover:text-foreground"
-                      onClick={() => setLocalSettings(s => ({ ...s, totalSpots: DEFAULT_SETTINGS.totalSpots }))}
+                      onClick={() => editar(s => ({ ...s, totalSpots: DEFAULT_SETTINGS.totalSpots }))}
                     >
                       restaurar
                     </button>
@@ -137,7 +160,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
               id="observation"
               placeholder="Ex: Horário de funcionamento: Seg-Sex 07h às 22h | Sáb 08h às 18h"
               value={localSettings.ticketObservation}
-              onChange={(e) => setLocalSettings(s => ({ ...s, ticketObservation: e.target.value }))}
+              onChange={(e) => editar(s => ({ ...s, ticketObservation: e.target.value }))}
               rows={3}
             />
           </div>
@@ -161,14 +184,14 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
         <CardContent className="space-y-4">
           <ChargeModeSelector
             value={localSettings.pricing.chargeMode}
-            onChange={(chargeMode) => setLocalSettings(s => ({ ...s, pricing: { ...s.pricing, chargeMode } }))}
+            onChange={(chargeMode) => editar(s => ({ ...s, pricing: { ...s.pricing, chargeMode } }))}
           />
 
           {isFixed ? (
             <div className="space-y-3">
               <FixedPriceField
                 pricing={localSettings.pricing}
-                onChange={(p) => setLocalSettings(s => ({ ...s, pricing: { ...s.pricing, ...p } }))}
+                onChange={(p) => editar(s => ({ ...s, pricing: { ...s.pricing, ...p } }))}
               />
               <div className="p-3 bg-secondary rounded-lg text-sm">
                 Todo veículo registrado pagará{' '}
@@ -187,7 +210,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
                 min={0}
                 step={0.5}
                 value={localSettings.pricing.firstHourPrice}
-                onChange={(e) => setLocalSettings(s => ({
+                onChange={(e) => editar(s => ({
                   ...s,
                   pricing: { ...s.pricing, firstHourPrice: parseFloat(e.target.value) || 0 }
                 }))}
@@ -201,7 +224,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
                 min={0}
                 step={0.5}
                 value={localSettings.pricing.additionalHourPrice}
-                onChange={(e) => setLocalSettings(s => ({
+                onChange={(e) => editar(s => ({
                   ...s,
                   pricing: { ...s.pricing, additionalHourPrice: parseFloat(e.target.value) || 0 }
                 }))}
@@ -215,7 +238,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
                 min={0}
                 step={1}
                 value={localSettings.pricing.dailyMaxPrice}
-                onChange={(e) => setLocalSettings(s => ({
+                onChange={(e) => editar(s => ({
                   ...s,
                   pricing: { ...s.pricing, dailyMaxPrice: parseFloat(e.target.value) || 0 }
                 }))}
@@ -248,7 +271,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
                 min={0}
                 max={60}
                 value={localSettings.pricing.toleranceMinutes}
-                onChange={(e) => setLocalSettings(s => ({
+                onChange={(e) => editar(s => ({
                   ...s,
                   pricing: { ...s.pricing, toleranceMinutes: parseInt(e.target.value) || 0 }
                 }))}
@@ -265,7 +288,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
                 min={0}
                 max={60}
                 value={localSettings.pricing.roundUpMinutes}
-                onChange={(e) => setLocalSettings(s => ({
+                onChange={(e) => editar(s => ({
                   ...s,
                   pricing: { ...s.pricing, roundUpMinutes: parseInt(e.target.value) || 0 }
                 }))}
@@ -308,7 +331,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
               <Select
                 value={localSettings.print?.paperSize ?? 'thermal80'}
                 onValueChange={(v) =>
-                  setLocalSettings(s => ({ ...s, print: { ...s.print, paperSize: v as PaperSize } }))
+                  editar(s => ({ ...s, print: { ...s.print, paperSize: v as PaperSize } }))
                 }
               >
                 <SelectTrigger>
@@ -330,7 +353,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
                 max={18}
                 value={localSettings.print?.fontSize ?? 12}
                 onChange={(e) =>
-                  setLocalSettings(s => ({ ...s, print: { ...s.print, fontSize: parseInt(e.target.value) || 12 } }))
+                  editar(s => ({ ...s, print: { ...s.print, fontSize: parseInt(e.target.value) || 12 } }))
                 }
               />
             </div>
@@ -341,7 +364,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
                 placeholder="Ex: EPSON TM-T20 na recepção"
                 value={localSettings.print?.printerName ?? ''}
                 onChange={(e) =>
-                  setLocalSettings(s => ({ ...s, print: { ...s.print, printerName: e.target.value } }))
+                  editar(s => ({ ...s, print: { ...s.print, printerName: e.target.value } }))
                 }
               />
               <p className="text-xs text-muted-foreground">
@@ -366,7 +389,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
                 id="autoPrintRemote"
                 checked={!!localSettings.print?.autoPrintRemoteEntries}
                 onCheckedChange={(checked) =>
-                  setLocalSettings(s => ({ ...s, print: { ...s.print, autoPrintRemoteEntries: checked } }))
+                  editar(s => ({ ...s, print: { ...s.print, autoPrintRemoteEntries: checked } }))
                 }
               />
             </div>
@@ -397,10 +420,17 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
         </CardContent>
       </Card>
 
-      <Button onClick={handleSave} className="w-full" size="lg">
-        <Save className="w-4 h-4 mr-2" />
-        Salvar Configurações
-      </Button>
+      <div className="sticky bottom-0 -mx-1 px-1 pb-2 pt-2 bg-background/95 backdrop-blur">
+        {alterado && (
+          <p className="text-xs text-center text-warning font-medium mb-1.5">
+            Há alterações não salvas
+          </p>
+        )}
+        <Button onClick={handleSave} className="w-full" size="lg" disabled={salvando}>
+          <Save className="w-4 h-4 mr-2" />
+          {salvando ? 'Salvando…' : 'Salvar Configurações'}
+        </Button>
+      </div>
     </div>
   );
 }

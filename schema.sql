@@ -59,9 +59,11 @@ CREATE TABLE IF NOT EXISTS parking_settings (
   updated_at              TIMESTAMPTZ    NOT NULL DEFAULT NOW()
 );
 
--- Garante que só existe uma linha de configuração
-INSERT INTO parking_settings DEFAULT VALUES
-  ON CONFLICT DO NOTHING;
+-- Linha única de configuração (id = 1). O app grava e lê SEMPRE esta linha.
+-- (Antes era "DEFAULT VALUES": cada vez que este arquivo rodava, criava uma
+-- linha nova com os padrões, e o app às vezes lia a errada.)
+INSERT INTO parking_settings (id) VALUES (1)
+  ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
 -- Tabela: camera_settings
@@ -439,6 +441,31 @@ BEGIN
   ALTER PUBLICATION supabase_realtime ADD TABLE parking_settings;
 EXCEPTION WHEN duplicate_object THEN
   NULL;  -- já estava na publicação
+END $$;
+
+-- ============================================================
+-- CORREÇÃO: configurações "voltando" depois de salvar (2026-11-11)
+-- Rodar o schema.sql de novo criava linhas extras em parking_settings com
+-- os valores padrão. O app salva na linha 1, mas lia "a primeira que viesse"
+-- e às vezes pegava uma linha extra — as configurações pareciam não salvar.
+-- Aqui: apaga as linhas extras (o app nunca usou nenhuma delas) e impede que
+-- surjam de novo. Seguro rodar mais de uma vez.
+-- ============================================================
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM parking_settings WHERE id = 1) THEN
+    DELETE FROM parking_settings WHERE id <> 1;
+  ELSE
+    -- Sem a linha 1 (caso raro): a mais antiga passa a ser a oficial
+    DELETE FROM parking_settings WHERE id > (SELECT MIN(id) FROM parking_settings);
+    UPDATE parking_settings SET id = 1;
+  END IF;
+
+  BEGIN
+    ALTER TABLE parking_settings ADD CONSTRAINT parking_settings_linha_unica CHECK (id = 1);
+  EXCEPTION WHEN duplicate_object THEN
+    NULL;  -- já existia
+  END;
 END $$;
 
 NOTIFY pgrst, 'reload schema';

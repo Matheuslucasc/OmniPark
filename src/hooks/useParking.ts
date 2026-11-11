@@ -3,7 +3,7 @@ import { useLocalStorage } from './useLocalStorage';
 import { Vehicle, ParkingSettings, ParkingStats, DEFAULT_SETTINGS, HistoryFilters } from '@/types/parking';
 import { calculateParkingFee, generateId, isToday, normalizePricing } from '@/lib/parking-utils';
 import { hasDB, supabase } from '@/lib/supabase';
-import { rowToVehicle, rowToSettings, VehicleAlreadyExitedError, dbFetchVehicles, dbInsertVehicle, dbUpdateVehicleExit, dbDeleteVehicle, dbFetchSettings, dbUpsertSettings } from '@/lib/db';
+import { rowToVehicle, rowToSettings, SETTINGS_ROW_ID, VehicleAlreadyExitedError, dbFetchVehicles, dbInsertVehicle, dbUpdateVehicleExit, dbDeleteVehicle, dbFetchSettings, dbUpsertSettings } from '@/lib/db';
 
 const VEHICLES_KEY = 'parking_vehicles';
 const SETTINGS_KEY = 'parking_settings';
@@ -42,25 +42,22 @@ export function useParking({ onRemoteEntry }: UseParkingOptions = {}) {
 
     (async () => {
       try {
-        const [dbVehicles, dbSettingsResult] = await Promise.all([
+        const [dbVehicles, dbSettings] = await Promise.all([
           dbFetchVehicles(),
-          dbFetchSettings(),
+          // undefined = não deu para ler (rede); null = banco ainda sem configuração
+          dbFetchSettings().catch((e) => { console.error('[OmniPark] Erro ao ler configurações:', e); return undefined; }),
         ]);
 
         setVehicles(dbVehicles);
 
-        if (dbSettingsResult?.userSaved) {
-          // O usuário já salvou configurações no banco — usa os valores do Supabase
-          // mas mantém as print settings locais (device-specific)
-          const synced: ParkingSettings = {
-            ...dbSettingsResult.settings,
-            print: mergedLocal.print,
-          };
+        if (dbSettings) {
+          // O banco é a fonte da verdade; a impressora continua sendo deste aparelho
+          const synced: ParkingSettings = { ...dbSettings, print: mergedLocal.print };
           setSettings(synced);
           setLocalSettings(synced);
-        } else if (dbSettingsResult && !dbSettingsResult.userSaved) {
-          // Banco tem apenas os defaults do schema — envia as configs locais para o banco
-          try { await dbUpsertSettings(mergedLocal); } catch { /* ignora */ }
+        } else if (dbSettings === null) {
+          // Banco ainda sem configuração: grava a deste aparelho como ponto de partida
+          try { await dbUpsertSettings(mergedLocal); } catch { /* tenta de novo no próximo salvar */ }
         }
       } catch (err) {
         console.error('[OmniPark] Erro ao carregar dados do banco:', err);
@@ -105,7 +102,9 @@ export function useParking({ onRemoteEntry }: UseParkingOptions = {}) {
     const settingsChannel = client
       .channel('settings_live')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'parking_settings' }, (payload) => {
-        const novo = rowToSettings(payload.new as Record<string, unknown>);
+        const row = payload.new as Record<string, unknown>;
+        if (Number(row.id) !== SETTINGS_ROW_ID) return; // só a linha oficial
+        const novo = rowToSettings(row);
         setSettings(prev => ({ ...novo, print: prev.print }));
       })
       .subscribe();
@@ -116,7 +115,7 @@ export function useParking({ onRemoteEntry }: UseParkingOptions = {}) {
       if (document.visibilityState !== 'visible') return;
       dbFetchVehicles().then(setVehicles).catch(() => { /* mantém a lista atual */ });
       dbFetchSettings()
-        .then(r => { if (r?.userSaved) setSettings(prev => ({ ...r.settings, print: prev.print })); })
+        .then(s => { if (s) setSettings(prev => ({ ...s, print: prev.print })); })
         .catch(() => { /* mantém as atuais */ });
     };
     document.addEventListener('visibilitychange', onVisible);
@@ -281,23 +280,21 @@ export function useParking({ onRemoteEntry }: UseParkingOptions = {}) {
     if (!hasDB()) setLocalVehicles(prev => prev.filter(v => v.id !== vehicleId));
   }, [setLocalVehicles]);
 
-  const updateSettings = useCallback((newSettings: Partial<ParkingSettings>) => {
+  /**
+   * Salva as configurações. Espera o banco confirmar e REPASSA o erro: antes a
+   * tela dizia "salvo" mesmo quando o servidor recusava, e na próxima abertura
+   * os valores antigos voltavam.
+   */
+  const updateSettings = useCallback(async (newSettings: Partial<ParkingSettings>): Promise<void> => {
     const merged = { ...settings, ...newSettings };
     setSettings(merged);
     setLocalSettings(merged);
-    if (hasDB()) {
-      dbUpsertSettings(merged).catch(e => console.error('[OmniPark] Erro ao salvar settings:', e));
-    }
+    if (hasDB()) await dbUpsertSettings(merged);
   }, [settings, setLocalSettings]);
 
-  const updatePricing = useCallback((pricing: Partial<typeof settings.pricing>) => {
-    const merged = { ...settings, pricing: { ...settings.pricing, ...pricing } };
-    setSettings(merged);
-    setLocalSettings(merged);
-    if (hasDB()) {
-      dbUpsertSettings(merged).catch(e => console.error('[OmniPark] Erro ao salvar preços:', e));
-    }
-  }, [settings, setLocalSettings]);
+  const updatePricing = useCallback(async (pricing: Partial<typeof settings.pricing>): Promise<void> => {
+    await updateSettings({ pricing: { ...settings.pricing, ...pricing } });
+  }, [settings, updateSettings]);
 
   return {
     vehicles,
