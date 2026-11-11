@@ -1,4 +1,4 @@
-import { ParkingSettings, PricingSettings, PaperSize, DEFAULT_SETTINGS } from '@/types/parking';
+import { ParkingSettings, PricingSettings, PaperSize, PrintContrast, DEFAULT_SETTINGS } from '@/types/parking';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -356,6 +356,29 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
                   editar(s => ({ ...s, print: { ...s.print, fontSize: parseInt(e.target.value) || 12 } }))
                 }
               />
+            </div>
+
+            <div className="space-y-2 md:col-span-2">
+              <Label>Contraste do texto</Label>
+              <Select
+                value={localSettings.print?.contrast ?? 'forte'}
+                onValueChange={(v) =>
+                  editar(s => ({ ...s, print: { ...s.print, contrast: v as PrintContrast } }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="normal">Normal (impressora comum / A4)</SelectItem>
+                  <SelectItem value="forte">Forte (recomendado para térmica)</SelectItem>
+                  <SelectItem value="extra">Extra forte (texto ainda fraco)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Se o ticket sair com letra fraca, use Forte ou Extra forte e aumente a fonte para 13–14.
+                Use &quot;Imprimir ticket de teste&quot; para conferir.
+              </p>
             </div>
 
             <div className="space-y-2 md:col-span-2">

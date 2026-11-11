@@ -32,10 +32,15 @@ export interface PriceModule {
 
 export type PaperSize = 'a4' | 'thermal80' | 'thermal58';
 
+/** Espessura do texto impresso. Térmicas costumam precisar de "forte" ou "extra". */
+export type PrintContrast = 'normal' | 'forte' | 'extra';
+
 export interface PrintSettings {
   paperSize: PaperSize;
   fontSize: number;      // pt
   printerName: string;   // apenas informativo — lembrete para o operador
+  /** Espessura do texto (padrão: forte). */
+  contrast?: PrintContrast;
   /** Este aparelho imprime sozinho os tickets de entradas feitas em outros aparelhos. */
   autoPrintRemoteEntries?: boolean;
 }

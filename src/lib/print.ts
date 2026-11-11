@@ -1,4 +1,4 @@
-import type { PrintSettings, PaperSize, Vehicle, ParkingSettings } from '@/types/parking';
+import type { PrintSettings, PaperSize, PrintContrast, Vehicle, ParkingSettings } from '@/types/parking';
 import { formatDateTime, formatTicket } from '@/lib/parking-utils';
 
 const paperCss: Record<PaperSize, string> = {
@@ -13,8 +13,17 @@ const paperWidth: Record<PaperSize, string> = {
   thermal58: '52mm',
 };
 
+// Espessura do texto. A impressora térmica não tem tons de cinza: traço fino
+// ou cinza sai fraco/pontilhado. "forte" engrossa o traço com negrito + contorno.
+const contrastCss: Record<PrintContrast, string> = {
+  normal: 'font-weight: 400;',
+  forte:  'font-weight: 700; -webkit-text-stroke: 0.25px #000;',
+  extra:  'font-weight: 900; -webkit-text-stroke: 0.6px #000;',
+};
+
 export function printHtml(html: string, printSettings: PrintSettings): void {
   const { paperSize, fontSize } = printSettings;
+  const contrast = printSettings.contrast ?? 'forte';
 
   const fullHtml = `<!DOCTYPE html>
 <html>
@@ -22,23 +31,29 @@ export function printHtml(html: string, printSettings: PrintSettings): void {
   <meta charset="utf-8" />
   <style>
     ${paperCss[paperSize]}
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; color: #000;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body {
-      font-family: 'Courier New', Courier, monospace;
+      /* Fonte sem serifa de traço grosso (Courier New era fina demais na térmica) */
+      font-family: Arial, Helvetica, 'Liberation Sans', sans-serif;
       font-size: ${fontSize}pt;
+      line-height: 1.25;
       width: ${paperWidth[paperSize]};
-      color: #000;
       background: #fff;
+      ${contrastCss[contrast]}
     }
     .center  { text-align: center; }
     .bold    { font-weight: bold; }
     .large   { font-size: ${fontSize + 4}pt; }
-    .xlarge  { font-size: ${fontSize + 10}pt; letter-spacing: 4px; }
-    .divider { border-top: 1px dashed #000; margin: 6px 0; }
+    .xlarge  { font-size: ${fontSize + 10}pt; letter-spacing: 3px; font-weight: 900; }
+    .divider { border-top: 2px dashed #000; margin: 6px 0; }
     .row     { display: flex; justify-content: space-between; margin: 3px 0; }
-    .small   { font-size: ${Math.max(fontSize - 2, 8)}pt; color: #555; }
-    .total   { font-size: ${fontSize + 6}pt; font-weight: bold; text-align: center;
-               margin: 8px 0; padding: 6px; background: #000; color: #fff; }
+    /* Texto menor também em PRETO (cinza sai pontilhado/fraco na térmica) */
+    .small   { font-size: ${Math.max(fontSize - 2, 8)}pt; }
+    /* Total com borda grossa: antes era letra branca em fundo preto, que some
+       se o navegador não imprimir fundos */
+    .total   { font-size: ${fontSize + 6}pt; font-weight: 900; text-align: center;
+               margin: 8px 0; padding: 6px; border: 3px solid #000; }
     /* Nome/modelo do veículo em destaque (logo abaixo da placa) */
     .vehicle { font-size: ${fontSize + 6}pt; font-weight: bold; text-align: center;
                text-transform: uppercase; border: 2px solid #000; border-radius: 4px;
