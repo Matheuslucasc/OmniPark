@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocalStorage } from './useLocalStorage';
 import { Vehicle, ParkingSettings, ParkingStats, DEFAULT_SETTINGS, HistoryFilters } from '@/types/parking';
-import { calculateParkingFee, generateId, isToday } from '@/lib/parking-utils';
+import { calculateParkingFee, generateId, isToday, normalizePricing } from '@/lib/parking-utils';
 import { hasDB } from '@/lib/supabase';
 import { dbFetchVehicles, dbInsertVehicle, dbUpdateVehicleExit, dbDeleteVehicle, dbFetchSettings, dbUpsertSettings } from '@/lib/db';
 
@@ -17,6 +17,7 @@ export function useParking() {
     ...DEFAULT_SETTINGS,
     ...localSettings,
     print: { ...DEFAULT_SETTINGS.print, ...(localSettings.print ?? {}) },
+    pricing: normalizePricing(localSettings.pricing, DEFAULT_SETTINGS.pricing),
   };
 
   // Live state (mirrors DB or localStorage)

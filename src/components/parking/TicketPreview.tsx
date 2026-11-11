@@ -70,6 +70,14 @@ export function TicketPreview({ settings }: TicketPreviewProps) {
           <div className="space-y-1 mb-3">
             <div className="text-[10px] text-gray-500">Data/Hora Entrada:</div>
             <div className="text-xs font-bold">{formattedDate}, {formattedTime}</div>
+            {settings.pricing.chargeMode === 'fixed' && (
+              <>
+                <div className="text-[10px] text-gray-500 pt-1">Valor (fixo) — pagamento na saída:</div>
+                <div className="text-xs font-bold">
+                  {settings.pricing.fixedPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Observation */}

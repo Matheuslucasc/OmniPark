@@ -8,7 +8,12 @@ export interface Vehicle {
   status: 'parked' | 'exited';
 }
 
+/** 'hourly' = cobrança por hora (padrão) · 'fixed' = valor fixo por veículo (eventos) */
+export type ChargeMode = 'hourly' | 'fixed';
+
 export interface PricingSettings {
+  chargeMode: ChargeMode;
+  fixedPrice: number;      // usado quando chargeMode === 'fixed'
   toleranceMinutes: number;
   firstHourPrice: number;
   additionalHourPrice: number;
@@ -82,13 +87,15 @@ export const DEFAULT_CAMERA: Omit<CameraConfig, 'id'> = {
 };
 
 export const DEFAULT_SETTINGS: ParkingSettings = {
-  totalSpots: 50,
+  totalSpots: 25,
   parkingName: 'Estacionamento Central',
   parkingAddress: 'Rua Principal, 123 - Centro',
   parkingPhone: '(11) 99999-9999',
   parkingCNPJ: '00.000.000/0001-00',
   ticketObservation: 'Horário de funcionamento: Seg-Sex 07h às 22h | Sáb 08h às 18h',
   pricing: {
+    chargeMode: 'hourly',
+    fixedPrice: 20,
     toleranceMinutes: 15,
     firstHourPrice: 10,
     additionalHourPrice: 5,

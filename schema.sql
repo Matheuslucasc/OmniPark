@@ -48,7 +48,7 @@ CREATE INDEX IF NOT EXISTS idx_vehicles_exit   ON vehicles (exit_time  DESC);
 -- ============================================================
 CREATE TABLE IF NOT EXISTS parking_settings (
   id                      SERIAL PRIMARY KEY,
-  total_spots             INTEGER        NOT NULL DEFAULT 50,
+  total_spots             INTEGER        NOT NULL DEFAULT 25,
   parking_name            VARCHAR(200)   NOT NULL DEFAULT 'Estacionamento Central',
   parking_address         VARCHAR(300),
   parking_phone           VARCHAR(30),
@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS parking_settings (
   additional_hour_price   DECIMAL(10,2)  NOT NULL DEFAULT 5.00,
   daily_max_price         DECIMAL(10,2)  NOT NULL DEFAULT 50.00,
   round_up_minutes        INTEGER        NOT NULL DEFAULT 10,
+  -- Modo de cobrança: 'hourly' (por hora) ou 'fixed' (valor fixo — eventos)
+  charge_mode             VARCHAR(10)    NOT NULL DEFAULT 'hourly',
+  fixed_price             DECIMAL(10,2)  NOT NULL DEFAULT 0,
   updated_at              TIMESTAMPTZ    NOT NULL DEFAULT NOW()
 );
 
@@ -163,6 +166,8 @@ CREATE TABLE IF NOT EXISTS price_modules (
   additional_hour_price DECIMAL(10,2)  NOT NULL,
   daily_max_price       DECIMAL(10,2)  NOT NULL,
   round_up_minutes      INTEGER        NOT NULL DEFAULT 10,
+  charge_mode           VARCHAR(10)    NOT NULL DEFAULT 'hourly',
+  fixed_price           DECIMAL(10,2)  NOT NULL DEFAULT 0,
   is_active             BOOLEAN        NOT NULL DEFAULT TRUE,
   created_at            TIMESTAMPTZ    NOT NULL DEFAULT NOW()
 );
@@ -217,3 +222,29 @@ CREATE POLICY "usuarios podem ler proprio perfil"
 -- UPDATE profiles SET approved = true WHERE email = 'usuario@email.com';
 -- Para tornar admin:
 -- UPDATE profiles SET approved = true, role = 'admin' WHERE email = 'admin@email.com';
+
+-- ============================================================
+-- MIGRAÇÃO: modo de cobrança por valor fixo (eventos)
+-- Execute no SQL Editor do Supabase em bancos já existentes.
+-- É seguro rodar mais de uma vez.
+-- ============================================================
+ALTER TABLE parking_settings
+  ADD COLUMN IF NOT EXISTS charge_mode VARCHAR(10)   NOT NULL DEFAULT 'hourly',
+  ADD COLUMN IF NOT EXISTS fixed_price DECIMAL(10,2) NOT NULL DEFAULT 0;
+
+ALTER TABLE price_modules
+  ADD COLUMN IF NOT EXISTS charge_mode VARCHAR(10)   NOT NULL DEFAULT 'hourly',
+  ADD COLUMN IF NOT EXISTS fixed_price DECIMAL(10,2) NOT NULL DEFAULT 0;
+
+-- Recarrega o cache de schema do PostgREST para as novas colunas valerem na hora
+NOTIFY pgrst, 'reload schema';
+
+-- ============================================================
+-- MIGRAÇÃO: padrão de 25 vagas
+-- Muda o valor padrão da coluna (afeta só instalações novas).
+-- ============================================================
+ALTER TABLE parking_settings ALTER COLUMN total_spots SET DEFAULT 25;
+
+-- OPCIONAL: aplicar 25 vagas no banco atual (só se ainda estiver no padrão antigo de 50).
+-- Depois disso continua sendo possível alterar em Configurações → Total de Vagas.
+-- UPDATE parking_settings SET total_spots = 25 WHERE total_spots = 50;

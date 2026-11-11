@@ -23,7 +23,7 @@ const PriceModulesPanel = lazy(() =>
   import('@/components/parking/PriceModulesPanel').then(m => ({ default: m.PriceModulesPanel })));
 import { Button } from '@/components/ui/button';
 import { formatCurrency, formatPlate, formatTime } from '@/lib/parking-utils';
-import { Car, DollarSign, LogIn, LogOut, ParkingCircle, Menu, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Car, DollarSign, LogIn, LogOut, ParkingCircle, Menu, Clock, ChevronLeft, ChevronRight, Ticket } from 'lucide-react';
 import { Vehicle } from '@/types/parking';
 
 interface PlateRead {
@@ -146,6 +146,21 @@ const Index = () => {
       case 'dashboard':
         return (
           <div className="space-y-5">
+            {/* Aviso de modo evento (valor fixo) */}
+            {settings.pricing.chargeMode === 'fixed' && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('settings')}
+                className="w-full flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border-2 border-primary/30 bg-primary/5 text-left text-sm hover:border-primary/60 transition-colors"
+              >
+                <span className="flex items-center gap-2 font-medium">
+                  <Ticket className="w-4 h-4 text-primary shrink-0" />
+                  Modo evento: valor fixo por veículo
+                </span>
+                <span className="font-bold text-primary">{formatCurrency(settings.pricing.fixedPrice)}</span>
+              </button>
+            )}
+
             {/* Stats grid */}
             <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
               <StatCard

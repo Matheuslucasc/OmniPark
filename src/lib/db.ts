@@ -1,5 +1,48 @@
 import { supabase } from './supabase';
-import type { Vehicle, ParkingSettings } from '@/types/parking';
+import type { Vehicle, ParkingSettings, PricingSettings } from '@/types/parking';
+
+// ── Helpers de tarifa (comuns a parking_settings e price_modules) ─────────────
+
+function rowToPricing(row: Record<string, unknown>): PricingSettings {
+  return {
+    chargeMode:          row.charge_mode === 'fixed' ? 'fixed' : 'hourly',
+    fixedPrice:          row.fixed_price != null ? Number(row.fixed_price) : 0,
+    toleranceMinutes:    Number(row.tolerance_minutes),
+    firstHourPrice:      Number(row.first_hour_price),
+    additionalHourPrice: Number(row.additional_hour_price),
+    dailyMaxPrice:       Number(row.daily_max_price),
+    roundUpMinutes:      Number(row.round_up_minutes),
+  };
+}
+
+function pricingToRow(p: PricingSettings) {
+  return {
+    charge_mode:           p.chargeMode,
+    fixed_price:           p.fixedPrice,
+    tolerance_minutes:     p.toleranceMinutes,
+    first_hour_price:      p.firstHourPrice,
+    additional_hour_price: p.additionalHourPrice,
+    daily_max_price:       p.dailyMaxPrice,
+    round_up_minutes:      p.roundUpMinutes,
+  };
+}
+
+/**
+ * Se a migração das colunas charge_mode/fixed_price ainda não rodou no Supabase,
+ * o PostgREST recusa o payload. Nesse caso tentamos de novo sem elas para não
+ * quebrar o resto do salvamento (o modo fixo fica só neste dispositivo).
+ */
+function isMissingChargeColumn(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return error.code === 'PGRST204' && /charge_mode|fixed_price/.test(error.message ?? '');
+}
+
+function withoutChargeColumns<T extends Record<string, unknown>>(payload: T) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { charge_mode, fixed_price, ...rest } = payload;
+  console.warn('[OmniPark] Colunas charge_mode/fixed_price não existem no banco — rode a migração do schema.sql.');
+  return rest;
+}
 
 // ── Mapeamento banco (snake_case) → app (camelCase) ──────────────────────────
 
@@ -77,13 +120,7 @@ function rowToModule(row: Record<string, unknown>): PriceModule {
     name:        row.name as string,
     description: row.description as string | undefined,
     isActive:    row.is_active as boolean,
-    pricing: {
-      toleranceMinutes:    Number(row.tolerance_minutes),
-      firstHourPrice:      Number(row.first_hour_price),
-      additionalHourPrice: Number(row.additional_hour_price),
-      dailyMaxPrice:       Number(row.daily_max_price),
-      roundUpMinutes:      Number(row.round_up_minutes),
-    },
+    pricing:     rowToPricing(row),
   };
 }
 
@@ -103,24 +140,20 @@ export async function dbUpsertModule(m: PriceModule): Promise<PriceModule> {
     name:                 m.name,
     description:          m.description ?? null,
     is_active:            m.isActive,
-    tolerance_minutes:    m.pricing.toleranceMinutes,
-    first_hour_price:     m.pricing.firstHourPrice,
-    additional_hour_price: m.pricing.additionalHourPrice,
-    daily_max_price:      m.pricing.dailyMaxPrice,
-    round_up_minutes:     m.pricing.roundUpMinutes,
+    ...pricingToRow(m.pricing),
   };
   const isNew = m.id.startsWith('local-');
-  if (isNew) {
-    const { data, error } = await supabase.from('price_modules').insert(payload).select().single();
-    if (error) throw error;
-    return rowToModule(data);
+  const write = (body: Record<string, unknown>) => {
+    const client = supabase!;
+    return isNew
+      ? client.from('price_modules').insert(body).select().single()
+      : client.from('price_modules').update(body).eq('id', Number(m.id)).select().single();
+  };
+  let { data, error } = await write(payload);
+  if (isMissingChargeColumn(error)) {
+    ({ data, error } = await write(withoutChargeColumns(payload)));
+    if (!error && data) return { ...rowToModule(data), pricing: m.pricing };
   }
-  const { data, error } = await supabase
-    .from('price_modules')
-    .update(payload)
-    .eq('id', Number(m.id))
-    .select()
-    .single();
   if (error) throw error;
   return rowToModule(data);
 }
@@ -141,13 +174,7 @@ function rowToSettings(row: Record<string, unknown>): ParkingSettings {
     parkingPhone:      (row.parking_phone as string) ?? '',
     parkingCNPJ:       (row.parking_cnpj as string) ?? '',
     ticketObservation: (row.ticket_observation as string) ?? '',
-    pricing: {
-      toleranceMinutes:    Number(row.tolerance_minutes),
-      firstHourPrice:      Number(row.first_hour_price),
-      additionalHourPrice: Number(row.additional_hour_price),
-      dailyMaxPrice:       Number(row.daily_max_price),
-      roundUpMinutes:      Number(row.round_up_minutes),
-    },
+    pricing:           rowToPricing(row),
     // print é device-specific, não vem do banco
     print: { paperSize: 'thermal80', fontSize: 12, printerName: '' },
   };
@@ -172,24 +199,20 @@ export async function dbFetchSettings(): Promise<{ settings: ParkingSettings; us
 
 export async function dbUpsertSettings(s: ParkingSettings): Promise<void> {
   if (!supabase) return;
-  const { error } = await supabase
-    .from('parking_settings')
-    .upsert(
-      {
-        id:                    1,
-        total_spots:           s.totalSpots,
-        parking_name:          s.parkingName,
-        parking_address:       s.parkingAddress,
-        parking_phone:         s.parkingPhone,
-        parking_cnpj:          s.parkingCNPJ,
-        ticket_observation:    s.ticketObservation,
-        tolerance_minutes:     s.pricing.toleranceMinutes,
-        first_hour_price:      s.pricing.firstHourPrice,
-        additional_hour_price: s.pricing.additionalHourPrice,
-        daily_max_price:       s.pricing.dailyMaxPrice,
-        round_up_minutes:      s.pricing.roundUpMinutes,
-      },
-      { onConflict: 'id' }
-    );
+  const payload = {
+    id:                 1,
+    total_spots:        s.totalSpots,
+    parking_name:       s.parkingName,
+    parking_address:    s.parkingAddress,
+    parking_phone:      s.parkingPhone,
+    parking_cnpj:       s.parkingCNPJ,
+    ticket_observation: s.ticketObservation,
+    ...pricingToRow(s.pricing),
+  };
+  const upsert = (body: Record<string, unknown>) =>
+    supabase!.from('parking_settings').upsert(body, { onConflict: 'id' });
+
+  let { error } = await upsert(payload);
+  if (isMissingChargeColumn(error)) ({ error } = await upsert(withoutChargeColumns(payload)));
   if (error) throw error;
 }

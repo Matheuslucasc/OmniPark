@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { PriceModule } from '@/types/parking';
+import { PriceModule, DEFAULT_SETTINGS } from '@/types/parking';
+import { normalizePricing } from '@/lib/parking-utils';
 import { useLocalStorage } from './useLocalStorage';
 import { hasDB } from '@/lib/supabase';
 import { dbFetchModules, dbUpsertModule, dbDeleteModule } from '@/lib/db';
@@ -12,7 +13,10 @@ function localId() {
 
 export function usePriceModules() {
   const [localModules, setLocalModules] = useLocalStorage<PriceModule[]>(KEY, []);
-  const [modules, setModules] = useState<PriceModule[]>(localModules);
+  // Normaliza tarifas antigas salvas antes de existir o modo de cobrança
+  const [modules, setModules] = useState<PriceModule[]>(() =>
+    localModules.map(m => ({ ...m, pricing: normalizePricing(m.pricing, DEFAULT_SETTINGS.pricing) })),
+  );
   const [loading, setLoading] = useState(hasDB());
 
   useEffect(() => {

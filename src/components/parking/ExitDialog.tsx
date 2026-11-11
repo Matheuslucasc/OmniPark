@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { PlateInput } from './PlateInput';
 import { PlateDisplay } from './PlateDisplay';
 import { Vehicle, PricingSettings, ParkingSettings, PriceModule } from '@/types/parking';
-import { formatDateTime, formatDuration, formatCurrency, calculateParkingFee } from '@/lib/parking-utils';
+import { formatDateTime, formatDuration, formatCurrency, calculateParkingFee, describePricing } from '@/lib/parking-utils';
 import { printHtml, buildExitReceiptHtml } from '@/lib/print';
 import { usePriceModules } from '@/hooks/usePriceModules';
 import { LogOut, Printer, Check, Clock, DollarSign, Search, CheckCircle2, Tag } from 'lucide-react';
@@ -134,6 +134,9 @@ export function ExitDialog({
             {isSpecial && (
               <Badge variant="secondary" className="text-xs py-0">Especial</Badge>
             )}
+            {p.chargeMode === 'fixed' && (
+              <Badge className="text-xs py-0">Valor fixo</Badge>
+            )}
             {active && (
               <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
             )}
@@ -142,12 +145,10 @@ export function ExitDialog({
             <p className="text-xs text-muted-foreground mt-0.5 truncate">{description}</p>
           )}
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground">
-            <span>1ª hora: <strong className="text-foreground">{formatCurrency(p.firstHourPrice)}</strong></span>
-            <span>Adic.: <strong className="text-foreground">{formatCurrency(p.additionalHourPrice)}</strong></span>
-            <span>Máx.: <strong className="text-foreground">{formatCurrency(p.dailyMaxPrice)}</strong></span>
-            {p.toleranceMinutes > 0 && (
-              <span>Tolerância: <strong className="text-foreground">{p.toleranceMinutes}min</strong></span>
-            )}
+            {describePricing(p).map(part => {
+              const [k, v] = part.split(': ');
+              return <span key={part}>{k}: <strong className="text-foreground">{v}</strong></span>;
+            })}
           </div>
         </div>
       </div>
@@ -245,9 +246,10 @@ export function ExitDialog({
                         <DollarSign className="w-4 h-4" />
                         Valor a Cobrar
                       </div>
-                      {selectedModule && (
+                      {(selectedModule || activePricing.chargeMode === 'fixed') && (
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Tarifa: {selectedModule.name}
+                          {selectedModule ? `Tarifa: ${selectedModule.name}` : 'Tarifa Padrão'}
+                          {activePricing.chargeMode === 'fixed' && ' · valor fixo'}
                         </p>
                       )}
                     </div>

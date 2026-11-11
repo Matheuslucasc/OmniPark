@@ -1,4 +1,4 @@
-import { ParkingSettings, PricingSettings, PaperSize } from '@/types/parking';
+import { ParkingSettings, PricingSettings, PaperSize, DEFAULT_SETTINGS } from '@/types/parking';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { formatCurrency } from '@/lib/parking-utils';
 import { printHtml, buildEntryTicketHtml } from '@/lib/print';
 import { TicketPreview } from './TicketPreview';
+import { ChargeModeSelector, FixedPriceField } from './ChargeModeFields';
 
 interface SettingsPanelProps {
   settings: ParkingSettings;
@@ -27,13 +28,17 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
     setLocalSettings(settings);
   }, [settings]);
 
+  const isFixed = localSettings.pricing.chargeMode === 'fixed';
+
   const handleSave = () => {
     // passa tudo de uma vez para evitar race condition entre dois setSettings separados
     onUpdateSettings(localSettings);
 
     toast({
       title: "Configurações salvas",
-      description: "As alterações foram aplicadas com sucesso.",
+      description: localSettings.pricing.chargeMode === 'fixed'
+        ? `Cobrança em valor fixo: ${formatCurrency(localSettings.pricing.fixedPrice)} por veículo.`
+        : "As alterações foram aplicadas com sucesso.",
     });
   };
 
@@ -93,6 +98,21 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
                 value={localSettings.totalSpots}
                 onChange={(e) => setLocalSettings(s => ({ ...s, totalSpots: parseInt(e.target.value) || 1 }))}
               />
+              <p className="text-xs text-muted-foreground">
+                Padrão: {DEFAULT_SETTINGS.totalSpots} vagas
+                {localSettings.totalSpots !== DEFAULT_SETTINGS.totalSpots && (
+                  <>
+                    {' · '}
+                    <button
+                      type="button"
+                      className="underline hover:text-foreground"
+                      onClick={() => setLocalSettings(s => ({ ...s, totalSpots: DEFAULT_SETTINGS.totalSpots }))}
+                    >
+                      restaurar
+                    </button>
+                  </>
+                )}
+              </p>
             </div>
           </div>
         </CardContent>
@@ -134,10 +154,29 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
             Tabela de Preços
           </CardTitle>
           <CardDescription>
-            Configure os valores cobrados por hora
+            Escolha como cobrar: por hora (padrão) ou valor fixo por veículo (eventos)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <ChargeModeSelector
+            value={localSettings.pricing.chargeMode}
+            onChange={(chargeMode) => setLocalSettings(s => ({ ...s, pricing: { ...s.pricing, chargeMode } }))}
+          />
+
+          {isFixed ? (
+            <div className="space-y-3">
+              <FixedPriceField
+                pricing={localSettings.pricing}
+                onChange={(p) => setLocalSettings(s => ({ ...s, pricing: { ...s.pricing, ...p } }))}
+              />
+              <div className="p-3 bg-secondary rounded-lg text-sm">
+                Todo veículo registrado pagará{' '}
+                <span className="font-semibold">{formatCurrency(localSettings.pricing.fixedPrice)}</span>{' '}
+                na saída. Os valores por hora continuam guardados para quando você voltar ao modo
+                &quot;Por hora&quot;.
+              </div>
+            </div>
+          ) : (
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="firstHour">Primeira Hora (R$)</Label>
@@ -182,10 +221,12 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
               />
             </div>
           </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Tolerance */}
+      {/* Tolerance (só faz sentido na cobrança por hora) */}
+      {!isFixed && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -246,6 +287,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Printer Settings */}
       <Card>
@@ -321,6 +363,7 @@ export function SettingsPanel({ settings, onUpdateSettings }: SettingsPanelProps
                   parkingAddress: localSettings.parkingAddress,
                   parkingPhone: localSettings.parkingPhone,
                   ticketObservation: localSettings.ticketObservation,
+                  fixedPrice: isFixed ? localSettings.pricing.fixedPrice : undefined,
                 }),
                 localSettings.print ?? { paperSize: 'thermal80', fontSize: 12, printerName: '' },
               )

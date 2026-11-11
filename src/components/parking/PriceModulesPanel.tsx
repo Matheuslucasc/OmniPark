@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { formatCurrency } from '@/lib/parking-utils';
+import { describePricing } from '@/lib/parking-utils';
+import { ChargeModeSelector, FixedPriceField } from './ChargeModeFields';
 import { Plus, Trash2, Edit2, Save, X, Tag } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -54,6 +55,11 @@ export function PriceModulesPanel({ defaultPricing }: { defaultPricing: PricingS
     pricing: PricingSettings;
     onChange: (p: Partial<PricingSettings>) => void;
   }) => (
+    <div className="space-y-3">
+    <ChargeModeSelector compact value={pricing.chargeMode} onChange={chargeMode => onChange({ chargeMode })} />
+    {pricing.chargeMode === 'fixed' ? (
+      <FixedPriceField small id="moduleFixedPrice" pricing={pricing} onChange={onChange} />
+    ) : (
     <div className="grid gap-3 sm:grid-cols-2">
       <div className="space-y-1">
         <Label className="text-xs">1ª hora (R$)</Label>
@@ -76,18 +82,20 @@ export function PriceModulesPanel({ defaultPricing }: { defaultPricing: PricingS
           onChange={e => onChange({ toleranceMinutes: parseInt(e.target.value) || 0 })} />
       </div>
     </div>
+    )}
+    </div>
   );
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="font-semibold">Tarifas Especiais</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Ex: Festa do Pinhão, Show, Feriado. Selecionável na hora da saída.
+            Ex: Festa do Pinhão, Show, Feriado. Por hora ou valor fixo — selecionável na hora da saída.
           </p>
         </div>
-        <Button size="sm" onClick={() => { setShowAdd(true); setForm(emptyForm()); }}>
+        <Button size="sm" className="self-start sm:self-auto" onClick={() => { setShowAdd(true); setForm(emptyForm()); }}>
           <Plus className="w-4 h-4 mr-1" />
           Nova tarifa
         </Button>
@@ -168,15 +176,15 @@ export function PriceModulesPanel({ defaultPricing }: { defaultPricing: PricingS
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold">{mod.name}</span>
                     <Badge variant="secondary" className="text-xs">Especial</Badge>
+                    {mod.pricing.chargeMode === 'fixed' && (
+                      <Badge className="text-xs">Valor fixo</Badge>
+                    )}
                   </div>
                   {mod.description && (
                     <p className="text-xs text-muted-foreground mt-0.5">{mod.description}</p>
                   )}
                   <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
-                    <span>1ª hora: <strong>{formatCurrency(mod.pricing.firstHourPrice)}</strong></span>
-                    <span>Adic.: <strong>{formatCurrency(mod.pricing.additionalHourPrice)}</strong></span>
-                    <span>Máx.: <strong>{formatCurrency(mod.pricing.dailyMaxPrice)}</strong></span>
-                    <span>Tolerância: <strong>{mod.pricing.toleranceMinutes}min</strong></span>
+                    {describePricing(mod.pricing).map(part => <span key={part}>{part}</span>)}
                   </div>
                 </div>
                 <div className="flex gap-1 shrink-0">

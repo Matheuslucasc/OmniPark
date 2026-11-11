@@ -5,9 +5,9 @@ import { Input } from '@/components/ui/input';
 import { PlateInput } from './PlateInput';
 import { PlateDisplay } from './PlateDisplay';
 import { Vehicle, ParkingSettings } from '@/types/parking';
-import { formatDateTime } from '@/lib/parking-utils';
+import { formatDateTime, formatCurrency } from '@/lib/parking-utils';
 import { printHtml, buildEntryTicketHtml } from '@/lib/print';
-import { LogIn, Printer, Check, Car } from 'lucide-react';
+import { LogIn, Printer, Check, Car, Ticket } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface EntryDialogProps {
@@ -80,10 +80,13 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
         parkingAddress:    settings.parkingAddress,
         parkingPhone:      settings.parkingPhone,
         ticketObservation: settings.ticketObservation,
+        fixedPrice:        isFixed ? settings.pricing.fixedPrice : undefined,
       }),
       settings.print,
     );
   };
+
+  const isFixed = settings.pricing.chargeMode === 'fixed';
 
   const handleClose = () => {
     setPlate('');
@@ -147,6 +150,16 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
               </Button>
             )}
 
+            {isFixed && (
+              <div className="flex items-center justify-between gap-2 p-3 rounded-lg border-2 border-primary/20 bg-primary/5 text-sm">
+                <span className="flex items-center gap-2 text-muted-foreground">
+                  <Ticket className="w-4 h-4 text-primary" />
+                  Valor fixo (pago na saída)
+                </span>
+                <span className="font-bold text-primary">{formatCurrency(settings.pricing.fixedPrice)}</span>
+              </div>
+            )}
+
             <Button className="w-full" onClick={handleConfirm} disabled={plate.length < 6 || submitting}>
               <LogIn className="w-4 h-4 mr-2" />
               Confirmar Entrada
@@ -163,6 +176,11 @@ export function EntryDialog({ open, onOpenChange, onConfirm, lastReadPlate, plat
 
             <div className="text-sm text-muted-foreground">
               Entrada: {formatDateTime(confirmedVehicle.entryTime)}
+              {isFixed && (
+                <div className="mt-1">
+                  Valor a pagar na saída: <strong className="text-foreground">{formatCurrency(settings.pricing.fixedPrice)}</strong>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-2">

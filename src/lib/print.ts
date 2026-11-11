@@ -103,6 +103,8 @@ export interface EntryTicketData {
   parkingAddress?: string;
   parkingPhone?: string;
   ticketObservation?: string;
+  /** Quando definido (modo valor fixo), imprime o valor a pagar na saída. */
+  fixedPrice?: number;
 }
 
 export interface ExitReceiptData extends EntryTicketData {
@@ -122,6 +124,7 @@ export function buildEntryTicketHtml(d: EntryTicketData): string {
     ${d.vehicleName ? `<div class="center small">${d.vehicleName}</div>` : ''}
     <div class="divider"></div>
     <div class="row"><span>Entrada:</span><span class="bold">${d.entryTime}</span></div>
+    ${d.fixedPrice != null ? `<div class="row"><span>Valor (fixo):</span><span class="bold">${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(d.fixedPrice)}</span></div><div class="center small">Pagamento na saída</div>` : ''}
     ${d.ticketObservation ? `<div class="divider"></div><div class="center small">${d.ticketObservation}</div>` : ''}
     <div class="divider"></div>
     <div class="center small">Guarde este ticket</div>

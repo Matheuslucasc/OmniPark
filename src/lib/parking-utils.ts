@@ -13,11 +13,40 @@ export function isToday(date: Date): boolean {
   );
 }
 
+/** Completa campos ausentes (dados antigos do localStorage/banco sem modo de cobrança). */
+export function normalizePricing(p: Partial<PricingSettings> | undefined, fallback: PricingSettings): PricingSettings {
+  const merged = { ...fallback, ...(p ?? {}) };
+  return {
+    ...merged,
+    chargeMode: merged.chargeMode === 'fixed' ? 'fixed' : 'hourly',
+    fixedPrice: Number.isFinite(merged.fixedPrice) ? merged.fixedPrice : fallback.fixedPrice,
+  };
+}
+
+/** Resumo curto da tarifa para exibir em cards (ex: "Valor fixo: R$ 20,00"). */
+export function describePricing(p: PricingSettings): string[] {
+  if (p.chargeMode === 'fixed') {
+    return [`Valor fixo: ${formatCurrency(p.fixedPrice)}`];
+  }
+  const parts = [
+    `1ª hora: ${formatCurrency(p.firstHourPrice)}`,
+    `Adic.: ${formatCurrency(p.additionalHourPrice)}`,
+    `Máx.: ${formatCurrency(p.dailyMaxPrice)}`,
+  ];
+  if (p.toleranceMinutes > 0) parts.push(`Tolerância: ${p.toleranceMinutes}min`);
+  return parts;
+}
+
 export function calculateParkingFee(
   entryTime: Date,
   exitTime: Date,
   pricing: PricingSettings
 ): number {
+  // Modo evento: valor fixo independente do tempo de permanência
+  if (pricing.chargeMode === 'fixed') {
+    return Math.max(0, pricing.fixedPrice || 0);
+  }
+
   const diffMs = exitTime.getTime() - entryTime.getTime();
   const diffMinutes = Math.floor(diffMs / (1000 * 60));
 
