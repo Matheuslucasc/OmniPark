@@ -1,5 +1,5 @@
 import { Vehicle } from '@/types/parking';
-import { formatDateTime, formatDuration, formatPlate } from '@/lib/parking-utils';
+import { formatDateTime, formatDuration, formatPlate, formatTicket } from '@/lib/parking-utils';
 import { Clock, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -48,6 +48,9 @@ export function VehicleCard({ vehicle, onExit, compact = false }: VehicleCardPro
     <div className="p-4 bg-card rounded-xl border-2 border-border hover:border-primary/30 transition-all hover:shadow-md">
       <div className="flex items-start justify-between mb-3">
         <div>
+          {vehicle.dailyTicket != null && (
+            <div className="text-xs font-semibold text-primary mb-0.5">Nº {formatTicket(vehicle.dailyTicket)}</div>
+          )}
           <div className="font-mono font-bold text-2xl tracking-wider">
             {formatPlate(vehicle.plate)}
           </div>

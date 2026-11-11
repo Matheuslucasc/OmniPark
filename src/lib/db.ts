@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { Vehicle, ParkingSettings, PricingSettings } from '@/types/parking';
+import type { Vehicle, ParkingSettings, PricingSettings, CameraConfig } from '@/types/parking';
 
 // ── Helpers de tarifa (comuns a parking_settings e price_modules) ─────────────
 
@@ -55,6 +55,7 @@ function rowToVehicle(row: Record<string, unknown>): Vehicle {
     exitTime:    row.exit_time as string | undefined,
     amountPaid:  row.amount_paid != null ? Number(row.amount_paid) : undefined,
     status:      row.status as 'parked' | 'exited',
+    dailyTicket: row.daily_ticket != null ? Number(row.daily_ticket) : undefined,
   };
 }
 
@@ -74,18 +75,24 @@ export async function dbInsertVehicle(
   vehicle: Omit<Vehicle, 'id'>
 ): Promise<Vehicle> {
   if (!supabase) throw new Error('Supabase não configurado');
-  const { data, error } = await supabase
+  const base = {
+    plate:        vehicle.plate,
+    vehicle_name: vehicle.vehicleName ?? null,
+    entry_time:   vehicle.entryTime,
+    status:       vehicle.status,
+  };
+  let res = await supabase
     .from('vehicles')
-    .insert({
-      plate:        vehicle.plate,
-      vehicle_name: vehicle.vehicleName ?? null,
-      entry_time:   vehicle.entryTime,
-      status:       vehicle.status,
-    })
+    .insert({ ...base, daily_ticket: vehicle.dailyTicket ?? null })
     .select()
     .single();
-  if (error) throw error;
-  return rowToVehicle(data);
+  // Se a coluna daily_ticket ainda não foi criada no banco, insere sem ela
+  // (a entrada nunca deve falhar por causa desse recurso opcional).
+  if (res.error && /daily_ticket/.test(res.error.message)) {
+    res = await supabase.from('vehicles').insert(base).select().single();
+  }
+  if (res.error) throw res.error;
+  return rowToVehicle(res.data);
 }
 
 export async function dbUpdateVehicleExit(
@@ -214,5 +221,122 @@ export async function dbUpsertSettings(s: ParkingSettings): Promise<void> {
 
   let { error } = await upsert(payload);
   if (isMissingChargeColumn(error)) ({ error } = await upsert(withoutChargeColumns(payload)));
+  if (error) throw error;
+}
+
+// ── Câmeras ───────────────────────────────────────────────────────────────────
+
+function rowToCamera(row: Record<string, unknown>): CameraConfig {
+  return {
+    id:         String(row.id),
+    name:       row.name as string,
+    ipAddress:  row.ip_address as string,
+    port:       Number(row.port),
+    protocol:   row.protocol as CameraConfig['protocol'],
+    streamPath: (row.stream_path as string) ?? '/stream',
+    username:   (row.username as string) ?? '',
+    password:   (row.password as string) ?? '',
+    location:   (row.location as string) ?? '',
+    isActive:   row.is_active as boolean,
+  };
+}
+
+function cameraToRow(cam: Omit<CameraConfig, 'id' | 'isActive'>) {
+  return {
+    name:        cam.name,
+    ip_address:  cam.ipAddress,
+    port:        cam.port,
+    protocol:    cam.protocol,
+    stream_path: cam.streamPath,
+    username:    cam.username || null,
+    password:    cam.password || null,
+    location:    cam.location || null,
+  };
+}
+
+export async function dbFetchCameras(): Promise<CameraConfig[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('camera_settings')
+    .select('*')
+    .order('id');
+  if (error) throw error;
+  return (data ?? []).map(rowToCamera);
+}
+
+export async function dbUpsertCamera(cam: CameraConfig): Promise<CameraConfig> {
+  if (!supabase) throw new Error('Supabase não configurado');
+  const isNew = !/^\d+$/.test(cam.id); // id do banco é numérico; ids locais têm prefixo
+  if (isNew) {
+    const { data, error } = await supabase
+      .from('camera_settings')
+      .insert({ ...cameraToRow(cam), is_active: false })
+      .select()
+      .single();
+    if (error) throw error;
+    return rowToCamera(data);
+  }
+  const { data, error } = await supabase
+    .from('camera_settings')
+    .update(cameraToRow(cam))
+    .eq('id', Number(cam.id))
+    .select()
+    .single();
+  if (error) throw error;
+  return rowToCamera(data);
+}
+
+export async function dbDeleteCamera(id: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from('camera_settings').delete().eq('id', Number(id));
+  if (error) throw error;
+}
+
+/**
+ * Marca uma câmera como ativa. O índice único do banco só permite uma ativa,
+ * então primeiro zera todas e depois ativa a escolhida.
+ */
+export async function dbSetActiveCamera(id: string): Promise<void> {
+  if (!supabase) return;
+  const off = await supabase
+    .from('camera_settings')
+    .update({ is_active: false })
+    .neq('id', 0); // atinge todas as linhas
+  if (off.error) throw off.error;
+  const on = await supabase
+    .from('camera_settings')
+    .update({ is_active: true })
+    .eq('id', Number(id));
+  if (on.error) throw on.error;
+}
+
+// ── Correções de placa (dataset para melhorar a precisão) ────────────────────
+
+function normalizarPlaca(p: string): string {
+  return p.toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+/**
+ * Registra o que o OCR leu vs. a placa que o operador confirmou. Chamado ao
+ * registrar uma entrada originada de leitura de câmera. Falha em silêncio
+ * (não deve atrapalhar o registro da entrada).
+ */
+export async function dbLogCorrection(
+  ocrPlate: string,
+  finalPlate: string,
+  imageUrl?: string,
+  cameraId?: number | null,
+): Promise<void> {
+  if (!supabase) return;
+  const ocr = normalizarPlaca(ocrPlate);
+  const fin = normalizarPlaca(finalPlate);
+  if (!fin) return;
+  const { error } = await supabase.from('plate_corrections').insert({
+    ocr_plate:     ocr || null,
+    final_plate:   fin,
+    was_corrected: ocr !== fin,
+    image_url:     imageUrl ?? null,
+    camera_id:     cameraId ?? null,
+  });
   if (error) throw error;
 }

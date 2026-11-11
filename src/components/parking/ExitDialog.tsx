@@ -1,19 +1,21 @@
 import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { PlateInput } from './PlateInput';
 import { PlateDisplay } from './PlateDisplay';
 import { Vehicle, PricingSettings, ParkingSettings, PriceModule } from '@/types/parking';
-import { formatDateTime, formatDuration, formatCurrency, calculateParkingFee, describePricing } from '@/lib/parking-utils';
+import { formatDateTime, formatDuration, formatCurrency, calculateParkingFee, formatTicket, describePricing } from '@/lib/parking-utils';
 import { printHtml, buildExitReceiptHtml } from '@/lib/print';
 import { usePriceModules } from '@/hooks/usePriceModules';
-import { LogOut, Printer, Check, Clock, DollarSign, Search, CheckCircle2, Tag } from 'lucide-react';
+import { useLocalStorage } from '@/hooks/useLocalStorage';
+import { LogOut, Printer, Check, Clock, DollarSign, Search, Tag, Pencil, AlertTriangle } from 'lucide-react';
 
 interface ExitDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (vehicleId: string, customPricing?: PricingSettings) => Promise<Vehicle | null> | Vehicle | null;
+  onConfirm: (vehicleId: string, customPricing?: PricingSettings, overrideAmount?: number) => Promise<Vehicle | null> | Vehicle | null;
   findVehicle: (plate: string) => Vehicle | undefined;
   pricing: PricingSettings;
   settings: ParkingSettings;
@@ -35,7 +37,18 @@ export function ExitDialog({
   const [selectedModule, setSelectedModule] = useState<PriceModule | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [, setTick] = useState(0); // só força re-render para atualizar duração/preço
+  const [naoEncontrado, setNaoEncontrado] = useState(false); // feedback da busca
+  const [valorManual, setValorManual] = useState<number | null>(null); // valor editado à mão
+  const [editandoValor, setEditandoValor] = useState(false);
   const { modules } = usePriceModules();
+  // Lembra a última tarifa escolhida entre saídas ('padrao' ou id do módulo).
+  const [lastTariffId, setLastTariffId] = useLocalStorage<string>('parking_last_tariff', 'padrao');
+
+  const handleSelectTariff = (id: string) => {
+    const mod = id === 'padrao' ? null : (modules.find(m => m.id === id) ?? null);
+    setSelectedModule(mod);
+    setLastTariffId(id);
+  };
 
   // Tick a cada 30s para atualizar duração e preço
   useEffect(() => {
@@ -46,12 +59,17 @@ export function ExitDialog({
 
   // Preço e duração calculados sempre frescos — reagem a qualquer mudança
   const activePricing = selectedModule?.pricing ?? pricing;
-  const fee = foundVehicle
+  const feeCalculado = foundVehicle
     ? calculateParkingFee(new Date(foundVehicle.entryTime), new Date(), activePricing)
     : 0;
+  // Valor a cobrar: o editado à mão, se houver; senão o calculado.
+  const fee = valorManual ?? feeCalculado;
   const duration = foundVehicle
     ? formatDuration(new Date(foundVehicle.entryTime), new Date())
     : '';
+
+  // Libera a busca por placa completa (6+) OU por número de ticket (1 a 4 dígitos).
+  const podeBuscar = plate.length >= 6 || /^\d{1,4}$/.test(plate);
 
   useEffect(() => {
     if (open && preSelectedVehicle) {
@@ -63,19 +81,40 @@ export function ExitDialog({
       setPlate('');
       setFoundVehicle(null);
       setExitedVehicle(null);
+      setNaoEncontrado(false);
+      setValorManual(null);
+      setEditandoValor(false);
     }
   }, [open, preSelectedVehicle]);
+
+  // Trocar a tarifa recalcula o valor: descarta a edição manual.
+  useEffect(() => {
+    setValorManual(null);
+    setEditandoValor(false);
+  }, [selectedModule]);
+
+  // Ao abrir com um veículo (ou quando os módulos carregam), aplica a última
+  // tarifa que o operador usou.
+  useEffect(() => {
+    if (!open || !foundVehicle) return;
+    const mod = lastTariffId === 'padrao'
+      ? null
+      : (modules.find(m => m.id === lastTariffId) ?? null);
+    setSelectedModule(mod);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, foundVehicle, modules]);
 
   const handleSearch = () => {
     const v = findVehicle(plate);
     setFoundVehicle(v ?? null);
+    setNaoEncontrado(!v);
   };
 
   const handleConfirm = async () => {
     if (!foundVehicle) return;
     setSubmitting(true);
     try {
-      const exited = await onConfirm(foundVehicle.id, selectedModule?.pricing);
+      const exited = await onConfirm(foundVehicle.id, selectedModule?.pricing, valorManual ?? undefined);
       if (exited) setExitedVehicle(exited);
     } finally {
       setSubmitting(false);
@@ -93,6 +132,7 @@ export function ExitDialog({
         duration:          formatDuration(new Date(exitedVehicle.entryTime), new Date(exitedVehicle.exitTime!)),
         amountPaid:        exitedVehicle.amountPaid ?? 0,
         id:                exitedVehicle.id,
+        ticketNumber:      formatTicket(exitedVehicle.dailyTicket),
         parkingName:       settings.parkingName,
         parkingAddress:    settings.parkingAddress,
         parkingPhone:      settings.parkingPhone,
@@ -101,59 +141,6 @@ export function ExitDialog({
       settings.print,
     );
   };
-
-  // ── Tariff card component ──────────────────────────────────────────
-  const TariffCard = ({
-    label,
-    description,
-    p,
-    active,
-    isSpecial,
-    onClick,
-  }: {
-    label: string;
-    description?: string;
-    p: PricingSettings;
-    active: boolean;
-    isSpecial?: boolean;
-    onClick: () => void;
-  }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
-        active
-          ? 'border-primary bg-primary/5 shadow-sm'
-          : 'border-border hover:border-primary/40 bg-card'
-      }`}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-sm">{label}</span>
-            {isSpecial && (
-              <Badge variant="secondary" className="text-xs py-0">Especial</Badge>
-            )}
-            {p.chargeMode === 'fixed' && (
-              <Badge className="text-xs py-0">Valor fixo</Badge>
-            )}
-            {active && (
-              <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
-            )}
-          </div>
-          {description && (
-            <p className="text-xs text-muted-foreground mt-0.5 truncate">{description}</p>
-          )}
-          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground">
-            {describePricing(p).map(part => {
-              const [k, v] = part.split(': ');
-              return <span key={part}>{k}: <strong className="text-foreground">{v}</strong></span>;
-            })}
-          </div>
-        </div>
-      </div>
-    </button>
-  );
 
   return (
     <Dialog open={open} onOpenChange={() => onOpenChange(false)}>
@@ -171,21 +158,33 @@ export function ExitDialog({
             {!foundVehicle ? (
               <>
                 <div>
-                  <label className="text-sm font-medium mb-2 block">Buscar Placa</label>
+                  <label className="text-sm font-medium mb-2 block">Buscar por placa ou nº do ticket</label>
                   <PlateInput
                     value={plate}
-                    onChange={val => { setPlate(val); setFoundVehicle(null); }}
-                    onSubmit={handleSearch}
+                    onChange={val => { setPlate(val); setFoundVehicle(null); setNaoEncontrado(false); }}
+                    onSubmit={() => { if (podeBuscar) handleSearch(); }}
+                    submitMinLength={1}
                     autoFocus
                   />
                 </div>
-                <Button className="w-full" onClick={handleSearch} disabled={plate.length < 6}>
+                {naoEncontrado && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/30 text-sm text-destructive">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    Nenhum veículo estacionado com essa placa/número.
+                  </div>
+                )}
+                <Button className="w-full" onClick={handleSearch} disabled={!podeBuscar}>
                   <Search className="w-4 h-4 mr-2" />
                   Buscar Veículo
                 </Button>
-                {plate.length >= 6 && (
+                {podeBuscar && (
                   <p className="text-xs text-muted-foreground text-center">
                     Pressione Enter ou clique em Buscar
+                  </p>
+                )}
+                {foundVehicle === null && plate.length > 0 && !podeBuscar && (
+                  <p className="text-xs text-muted-foreground text-center">
+                    Digite a placa completa ou o nº do ticket
                   </p>
                 )}
               </>
@@ -193,6 +192,11 @@ export function ExitDialog({
               <div className="space-y-4">
                 {/* ── Info do veículo ── */}
                 <div className="p-4 bg-secondary rounded-xl">
+                  {foundVehicle.dailyTicket != null && (
+                    <p className="text-center text-sm font-semibold text-muted-foreground mb-1">
+                      Ticket Nº {formatTicket(foundVehicle.dailyTicket)}
+                    </p>
+                  )}
                   <PlateDisplay plate={foundVehicle.plate} size="lg" className="w-full justify-center" />
                   {foundVehicle.vehicleName && (
                     <p className="text-center text-sm text-muted-foreground mt-1">{foundVehicle.vehicleName}</p>
@@ -217,46 +221,86 @@ export function ExitDialog({
                     <Tag className="w-3.5 h-3.5" />
                     Tabela de Preços
                   </label>
-                  <div className="space-y-2">
-                    <TariffCard
-                      label="Tarifa Padrão"
-                      p={pricing}
-                      active={selectedModule === null}
-                      onClick={() => setSelectedModule(null)}
-                    />
-                    {modules.map(m => (
-                      <TariffCard
-                        key={m.id}
-                        label={m.name}
-                        description={m.description}
-                        p={m.pricing}
-                        active={selectedModule?.id === m.id}
-                        isSpecial
-                        onClick={() => setSelectedModule(m)}
-                      />
-                    ))}
+                  <Select value={selectedModule?.id ?? 'padrao'} onValueChange={handleSelectTariff}>
+                    <SelectTrigger className="h-11">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="padrao">Tarifa Padrão{pricing.chargeMode === 'fixed' ? ` (fixo ${formatCurrency(pricing.fixedPrice)})` : ''}</SelectItem>
+                      {modules.map(m => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.name}{m.pricing.chargeMode === 'fixed' ? ` (fixo ${formatCurrency(m.pricing.fixedPrice)})` : ''}{m.description ? ` — ${m.description}` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {/* Resumo compacto da tarifa selecionada */}
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-2 text-xs text-muted-foreground">
+                    {describePricing(activePricing).map(part => {
+                      const [k, v] = part.split(': ');
+                      return <span key={part}>{k}: <strong className="text-foreground">{v}</strong></span>;
+                    })}
                   </div>
                 </div>
 
-                {/* ── Valor calculado ── */}
+                {/* ── Valor a cobrar (com opção de editar) ── */}
                 <div className="p-4 bg-primary/10 rounded-xl border-2 border-primary/20">
-                  <div className="flex items-center justify-between">
-                    <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
                       <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
                         <DollarSign className="w-4 h-4" />
                         Valor a Cobrar
                       </div>
-                      {(selectedModule || activePricing.chargeMode === 'fixed') && (
+                      {valorManual != null ? (
+                        <p className="text-xs text-amber-600 mt-0.5">Valor ajustado manualmente</p>
+                      ) : (selectedModule || activePricing.chargeMode === 'fixed') && (
                         <p className="text-xs text-muted-foreground mt-0.5">
                           {selectedModule ? `Tarifa: ${selectedModule.name}` : 'Tarifa Padrão'}
                           {activePricing.chargeMode === 'fixed' && ' · valor fixo'}
                         </p>
                       )}
                     </div>
-                    <span className="text-3xl font-bold text-primary">
-                      {formatCurrency(fee)}
-                    </span>
+
+                    {editandoValor ? (
+                      <div className="flex items-center gap-1">
+                        <span className="text-lg font-bold text-primary">R$</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="1"
+                          autoFocus
+                          defaultValue={fee}
+                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                          onBlur={(e) => {
+                            const n = parseFloat(e.target.value);
+                            setValorManual(isNaN(n) || n < 0 ? 0 : Math.round(n));
+                            setEditandoValor(false);
+                          }}
+                          className="w-24 h-10 text-right text-xl font-bold"
+                        />
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setEditandoValor(true)}
+                        className="flex items-center gap-2 group"
+                        title="Editar valor"
+                      >
+                        <span className="text-3xl font-bold text-primary">{formatCurrency(fee)}</span>
+                        <Pencil className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
+                      </button>
+                    )}
                   </div>
+                  {valorManual != null && !editandoValor && (
+                    <button
+                      type="button"
+                      onClick={() => setValorManual(null)}
+                      className="text-xs text-muted-foreground underline mt-2"
+                    >
+                      Voltar ao valor calculado ({formatCurrency(feeCalculado)})
+                    </button>
+                  )}
                 </div>
 
                 {/* ── Ações ── */}

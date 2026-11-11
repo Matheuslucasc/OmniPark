@@ -37,6 +37,11 @@ export function describePricing(p: PricingSettings): string[] {
   return parts;
 }
 
+/** Formata o número do ticket diário: 1 -> "001". Vazio se não houver número. */
+export function formatTicket(n?: number): string {
+  return n != null ? String(n).padStart(3, '0') : '';
+}
+
 export function calculateParkingFee(
   entryTime: Date,
   exitTime: Date,
@@ -83,7 +88,9 @@ export function calculateParkingFee(
   }
 
   // Apply daily maximum
-  return Math.min(total, pricing.dailyMaxPrice);
+  const comMaximo = Math.min(total, pricing.dailyMaxPrice);
+  // Arredonda para valor cheio (sem centavos) — evita cobranças como R$ 10,42.
+  return Math.round(comMaximo);
 }
 
 export function formatDuration(entryTime: Date, exitTime?: Date): string {
@@ -105,6 +112,11 @@ export function formatCurrency(value: number): string {
     style: 'currency',
     currency: 'BRL',
   }).format(value);
+}
+
+export function isValidPlate(plate: string): boolean {
+  // Exige os 7 caracteres: formato antigo (ABC1234) ou Mercosul (ABC1D23)
+  return /^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(plate.toUpperCase());
 }
 
 export function formatPlate(plate: string): string {

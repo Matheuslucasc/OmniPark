@@ -9,15 +9,17 @@ interface PlateInputProps {
   placeholder?: string;
   autoFocus?: boolean;
   className?: string;
+  submitMinLength?: number; // comprimento mínimo para o Enter disparar (padrão 7)
 }
 
-export function PlateInput({ 
-  value, 
-  onChange, 
+export function PlateInput({
+  value,
+  onChange,
   onSubmit,
   placeholder = "Digite a placa",
   autoFocus = false,
-  className 
+  className,
+  submitMinLength = 7,
 }: PlateInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -34,7 +36,7 @@ export function PlateInput({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && onSubmit && value.length >= 6) {
+    if (e.key === 'Enter' && onSubmit && value.length >= submitMinLength) {
       onSubmit();
     }
   };
