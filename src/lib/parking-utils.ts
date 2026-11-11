@@ -52,45 +52,37 @@ export function calculateParkingFee(
     return Math.max(0, pricing.fixedPrice || 0);
   }
 
-  const diffMs = exitTime.getTime() - entryTime.getTime();
-  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+  const diffMinutes = Math.floor((exitTime.getTime() - entryTime.getTime()) / 60000);
 
-  // Within tolerance period - free
-  if (diffMinutes <= pricing.toleranceMinutes) {
-    return 0;
-  }
+  // Dentro da tolerância (ou relógio inconsistente): não cobra
+  if (diffMinutes <= pricing.toleranceMinutes) return 0;
 
-  // Calculate billable minutes (after tolerance)
-  const billableMinutes = diffMinutes - pricing.toleranceMinutes;
-  
-  // Calculate hours with rounding
-  let hours: number;
-  const fullHours = Math.floor(billableMinutes / 60);
-  const remainingMinutes = billableMinutes % 60;
-  
-  if (remainingMinutes === 0) {
-    hours = fullHours;
-  } else if (remainingMinutes >= pricing.roundUpMinutes) {
-    hours = fullHours + 1;
-  } else {
-    hours = fullHours + (remainingMinutes / 60);
-  }
+  // O "valor máximo diário" vale para CADA período de 24h: cada dia completo
+  // custa no máximo uma diária, e o restante é cobrado pela tabela por hora.
+  const DIA = 24 * 60;
+  const diasCompletos = Math.floor(diffMinutes / DIA);
+  const restante = diffMinutes - diasCompletos * DIA;
 
-  // Minimum 1 hour
-  hours = Math.max(1, hours);
+  const total = diasCompletos > 0
+    ? diasCompletos * pricing.dailyMaxPrice + (restante > 0 ? cobrancaPorHora(restante, pricing) : 0)
+    : cobrancaPorHora(diffMinutes - pricing.toleranceMinutes, pricing);
 
-  // Calculate price
-  let total: number;
-  if (hours <= 1) {
-    total = pricing.firstHourPrice;
-  } else {
-    total = pricing.firstHourPrice + ((hours - 1) * pricing.additionalHourPrice);
-  }
+  // Valor cheio (sem centavos) — evita cobranças como R$ 10,42.
+  return Math.round(total);
+}
 
-  // Apply daily maximum
-  const comMaximo = Math.min(total, pricing.dailyMaxPrice);
-  // Arredonda para valor cheio (sem centavos) — evita cobranças como R$ 10,42.
-  return Math.round(comMaximo);
+/**
+ * Cobrança por hora de um período de até 24h, já limitada à diária máxima.
+ * Regra de arredondamento: o excedente de uma hora só é cobrado como hora cheia
+ * a partir de `roundUpMinutes`; abaixo disso, não cobra nada a mais.
+ */
+function cobrancaPorHora(minutos: number, pricing: PricingSettings): number {
+  const horasCheias = Math.floor(minutos / 60);
+  const resto = minutos % 60;
+  const arredondaParaCima = resto > 0 && resto >= pricing.roundUpMinutes;
+  const horas = Math.max(1, arredondaParaCima ? horasCheias + 1 : horasCheias);
+  const valor = pricing.firstHourPrice + (horas - 1) * pricing.additionalHourPrice;
+  return Math.min(valor, pricing.dailyMaxPrice);
 }
 
 export function formatDuration(entryTime: Date, exitTime?: Date): string {
