@@ -135,8 +135,13 @@ const Index = () => {
       title: 'Nova entrada registrada em outro aparelho',
       description: label,
       duration: 60_000,
+      variant: 'highlight',
       action: (
-        <ToastAction altText="Imprimir ticket" onClick={() => printEntryTicket(v, settingsRef.current ?? s)}>
+        <ToastAction
+          altText="Imprimir ticket"
+          className="border-yellow-950 bg-yellow-950 text-yellow-50 font-semibold hover:bg-yellow-900 focus:ring-yellow-700"
+          onClick={() => printEntryTicket(v, settingsRef.current ?? s)}
+        >
           Imprimir
         </ToastAction>
       ),
